@@ -7,7 +7,7 @@
 # Fichier: scripts/install_wazuh.sh
 # Auteur: GroupeNani
 # Date: 31 janvier 2026
-# Version: 1.1 (compatible Wazuh 4.x)
+# Version: 1.2 (fix test_syntax)
 #
 # Description:
 #   Script d'installation et configuration automatique de Wazuh Manager
@@ -146,7 +146,9 @@ import_config() {
     log_info "Import de la configuration personnalisée..."
     
     # Backup config originale
-    cp /var/ossec/etc/ossec.conf /var/ossec/etc/ossec.conf.bak.$(date +%Y%m%d)
+    if [[ -f /var/ossec/etc/ossec.conf ]]; then
+        cp /var/ossec/etc/ossec.conf /var/ossec/etc/ossec.conf.bak.$(date +%Y%m%d) 2>/dev/null || true
+    fi
     
     if [[ -f "$WAZUH_CONFIG" ]]; then
         cp "$WAZUH_CONFIG" /var/ossec/etc/ossec.conf
@@ -203,12 +205,6 @@ input(type="imudp" port="514")
 :msg, contains, "radiusd" /var/log/syslog-radius.log
 EOF
     
-    # Ajouter les fichiers dans ossec.conf si pas déjà présents
-    if ! grep -q "syslog-router.log" /var/ossec/etc/ossec.conf; then
-        log_info "Ajout des localfiles syslog dans ossec.conf..."
-        # Note: Cette section sera ajoutée manuellement ou via template
-    fi
-    
     systemctl restart rsyslog >> "$LOG_FILE" 2>&1
     
     log_success "rsyslog configuré"
@@ -217,13 +213,35 @@ EOF
 test_syntax() {
     log_info "Vérification de la syntaxe Wazuh..."
 
-    # Tester la configuration du manager Wazuh 4.x
-    if /var/ossec/bin/wazuh-control check >> "$LOG_FILE" 2>&1; then
-        log_success "Syntaxe valide"
-        return 0
+    # Méthode 1: Essayer de démarrer le service en mode test
+    # Si le service démarre, la config est valide
+    systemctl stop wazuh-manager >> "$LOG_FILE" 2>&1 || true
+    
+    # Lancer en mode daemon et capturer erreurs
+    if /var/ossec/bin/wazuh-control start >> "$LOG_FILE" 2>&1; then
+        log_success "Syntaxe valide - Wazuh démarré"
+        sleep 2
+        
+        # Vérifier que les processus tournent
+        if pgrep -x "wazuh-analysisd" > /dev/null; then
+            log_success "Processus wazuh-analysisd actif"
+            /var/ossec/bin/wazuh-control stop >> "$LOG_FILE" 2>&1 || true
+            return 0
+        else
+            log_error "Wazuh démarré mais processus analysisd non détecté"
+            /var/ossec/bin/wazuh-control stop >> "$LOG_FILE" 2>&1 || true
+            return 1
+        fi
     else
-        log_error "Erreur de syntaxe détectée (voir $LOG_FILE)"
-        tail -n 20 "$LOG_FILE"
+        log_error "Erreur de syntaxe ou démarrage (voir $LOG_FILE)"
+        
+        # Afficher les dernières lignes du log ossec
+        if [[ -f /var/ossec/logs/ossec.log ]]; then
+            echo "" | tee -a "$LOG_FILE"
+            echo "===== Dernières erreurs Wazuh =====" | tee -a "$LOG_FILE"
+            tail -n 20 /var/ossec/logs/ossec.log | tee -a "$LOG_FILE"
+        fi
+        
         return 1
     fi
 }
@@ -249,8 +267,10 @@ verify_installation() {
     log_info "Vérification de l'installation..."
     
     # Vérifier la version
-    WAZUH_VERSION=$(/var/ossec/bin/wazuh-control info | grep "WAZUH_VERSION" | cut -d'=' -f2 | tr -d '"')
-    log_success "Version Wazuh installée: $WAZUH_VERSION"
+    if [[ -f /var/ossec/bin/wazuh-control ]]; then
+        WAZUH_VERSION=$(/var/ossec/bin/wazuh-control info 2>/dev/null | grep "WAZUH_VERSION" | cut -d'=' -f2 | tr -d '"' || echo "Inconnue")
+        log_success "Version Wazuh installée: $WAZUH_VERSION"
+    fi
     
     # Vérifier les processus
     if pgrep -x "wazuh-analysisd" > /dev/null; then
@@ -262,13 +282,13 @@ verify_installation() {
     fi
     
     # Vérifier les ports ouverts
-    if ss -ulnp | grep -q ":514"; then
+    if ss -ulnp 2>/dev/null | grep -q ":514"; then
         log_success "Port 514 UDP (syslog) ouvert"
     else
         log_warning "Port 514 UDP non détecté (vérifier rsyslog)"
     fi
     
-    if ss -tlnp | grep -q ":1514"; then
+    if ss -tlnp 2>/dev/null | grep -q ":1514"; then
         log_success "Port 1514 TCP (agents) ouvert"
     fi
 }
@@ -314,6 +334,7 @@ ALERTES CONFIGURÉES:
 COMMANDES UTILES:
   Statut:
     $ sudo systemctl status wazuh-manager
+    $ sudo /var/ossec/bin/wazuh-control status
   
   Logs:
     $ sudo tail -f /var/ossec/logs/ossec.log
@@ -323,14 +344,11 @@ COMMANDES UTILES:
     $ sudo tail -f /var/ossec/logs/alerts/alerts.json
   
   Contrôler:
-    $ sudo /var/ossec/bin/wazuh-control status
     $ sudo /var/ossec/bin/wazuh-control info
   
   Redémarrer:
     $ sudo systemctl restart wazuh-manager
-  
-  Vérifier syntaxe:
-    $ sudo /var/ossec/bin/wazuh-control check
+    $ sudo /var/ossec/bin/wazuh-control restart
 
 VÉRIFICATIONS:
   [ ] Wazuh Manager démarré: systemctl status wazuh-manager
@@ -367,7 +385,7 @@ EOF
 
 main() {
     log_info "╔════════════════════════════════════════╗"
-    log_info "║  SAE 5.01 - Installation Wazuh (v1.1)  ║"
+    log_info "║  SAE 5.01 - Installation Wazuh (v1.2)  ║"
     log_info "║  $(date +"%Y-%m-%d %H:%M:%S")           ║"
     log_info "║  Compatible Wazuh 4.x                  ║"
     log_info "╚════════════════════════════════════════╝"
@@ -388,8 +406,13 @@ main() {
     configure_rsyslog
     
     if ! test_syntax; then
-        log_error "Erreur de syntaxe - installation incomplète"
+        log_error "Erreur de syntaxe ou configuration - installation incomplète"
         log_error "Vérifiez le log: $LOG_FILE"
+        log_info ""
+        log_info "Pour diagnostiquer:"
+        log_info "  1. Voir les erreurs: sudo tail -n 50 /var/ossec/logs/ossec.log"
+        log_info "  2. Tester manuellement: sudo /var/ossec/bin/wazuh-control start"
+        log_info "  3. Vérifier config: sudo cat /var/ossec/etc/ossec.conf"
         generate_report
         exit 1
     fi
