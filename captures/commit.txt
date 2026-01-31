@@ -1,0 +1,1 @@
+docs(captures): Ajouter preuves authentification Wi-Fi (radtest + client)

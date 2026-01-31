@@ -1,0 +1,3 @@
+feat(scripts): Ajouter script installation FreeRADIUS automatisé
+feat(scripts): Ajouter script installation Wazuh Manager automatisé
+feat(scripts): Ajouter script diagnostic complet du système SAE 5.01

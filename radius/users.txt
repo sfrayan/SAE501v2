@@ -1,0 +1,80 @@
+#
+# users - Fichier utilisateurs FreeRADIUS (format test)
+#
+# Fichier: radius/users.txt
+# Auteur: GroupeNani
+# Date: 4 janvier 2026
+#
+# Description:
+#   Fichier FreeRADIUS contenant les utilisateurs de test.
+#   Format: username Cleartext-Password := "password"
+#
+# Utilisation:
+#   À copier vers: /etc/freeradius/3.0/users
+#   Note: En production, utiliser la base MySQL (voir sql/create_tables.sql)
+#
+
+#############################################################################
+# ALICE - Staff (WPA2-Enterprise)
+#############################################################################
+alice@gym.fr Cleartext-Password := "Alice@123!"
+    Reply-Message := "Bienvenue Alice - Accès Staff autorisé"
+
+#############################################################################
+# BOB - Staff (WPA2-Enterprise)
+#############################################################################
+bob@gym.fr Cleartext-Password := "Bob@456!"
+    Reply-Message := "Bienvenue Bob - Accès Staff autorisé"
+
+#############################################################################
+# CHARLIE - Guest (WPA2-PSK → Invité)
+#############################################################################
+charlie@gym.fr Cleartext-Password := "Charlie@789!"
+    Reply-Message := "Bienvenue Charlie - Accès Invité autorisé"
+
+#############################################################################
+# DAVID - Manager (WPA2-Enterprise)
+#############################################################################
+david@gym.fr Cleartext-Password := "David@2026!"
+    Reply-Message := "Bienvenue David - Accès Manager autorisé"
+
+#############################################################################
+# EMMA - Réceptionniste (WPA2-Enterprise)
+#############################################################################
+emma@gym.fr Cleartext-Password := "Emma@2026!"
+    Reply-Message := "Bienvenue Emma - Accès Réception autorisé"
+
+#############################################################################
+# DEFAULT - Utilisateur par défaut (REJETER)
+#############################################################################
+DEFAULT Auth-Type := Reject
+    Reply-Message := "Authentification échouée - Accès refusé"
+
+#############################################################################
+# NOTES
+#############################################################################
+#
+# Format FreeRADIUS:
+#   username Cleartext-Password := "password"
+#       Attribute := value
+#       Attribute = value
+#
+# :=  = Remplacer (défaut)
+# =   = Ajouter
+# ==  = Comparer (conditions)
+# !=  = Non égal
+#
+# Attributs courants:
+#   Reply-Message: Message affiché au client
+#   Session-Timeout: Durée max session (secondes)
+#   Framed-Protocol: PPP, SLIP, etc.
+#   Framed-IP-Address: IP fixe (si besoin)
+#
+# Groupes (optionnel):
+#   Pour grouper users: utiliser table radusergroup + radgroupcheck
+#
+# Production:
+#   - Utiliser base MySQL pour scalabilité
+#   - Stocker MD5 hash, pas cleartext
+#   - Activer Message-Authenticator
+#

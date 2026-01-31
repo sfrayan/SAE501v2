@@ -1,0 +1,313 @@
+# ============================================
+# .gitignore - SAE 5.01
+# ============================================
+# Fichiers et dossiers à IGNORER dans le versioning
+# Raison: Sécurité, fichiers temporaires, dépendances
+
+# ============================================
+# FICHIERS SENSIBLES - SÉCURITÉ CRITIQUE
+# ============================================
+
+# Credentials et passwords
+*.key
+*.pem
+*.pfx
+*.p12
+*.crt
+*.cer
+*.der
+certificates/
+certs/
+keys/
+secrets/
+
+# Configuration avec passwords
+**/config.php.local
+**/config.local.*
+.env
+.env.local
+.env.*.local
+
+# Fichiers database
+*.sql.backup
+*.sql.bak
+radius/sql/*.backup
+radius/sql/*.bak
+
+# Wazuh sensitive configs
+/var/ossec/etc/ossec.conf.bak
+wazuh/*.backup
+wazuh/*.bak
+
+# SSH keys
+.ssh/
+id_rsa
+id_rsa.pub
+known_hosts
+authorized_keys
+
+# PHP sessions
+php_sessions/
+sessions/
+
+# ============================================
+# FICHIERS TEMPORAIRES ET LOGS
+# ============================================
+
+# Logs système
+*.log
+*.log.*
+logs/
+log/
+**/logs/
+**/log/
+
+# FreeRADIUS logs
+/var/log/freeradius/
+freeradius.log
+
+# Wazuh logs
+/var/ossec/logs/
+
+# Apache/PHP logs
+error.log
+access.log
+*.log.gz
+*.log.1
+*.log.2
+*.log.3
+*.log.4
+*.log.5
+
+# Fichiers temporaires
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.~*
+
+# Caches
+.cache/
+cache/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node modules (si utilisé)
+node_modules/
+npm-debug.log*
+
+# ============================================
+# IDE & EDITEURS
+# ============================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Vim
+.vim/
+*.vim
+.netrwhist
+
+# Nano
+.nano/
+
+# Sublime
+*.sublime-project
+*.sublime-workspace
+
+# PyCharm/IntelliJ
+.idea/
+*.iml
+.settings/
+
+# Eclipse
+.project
+.classpath
+.c9/
+
+# Otros
+.DS_Store
+Thumbs.db
+.editorconfig
+
+# ============================================
+# FICHIERS DE BUILD & DISTRIBUTION
+# ============================================
+
+# Build directories
+build/
+dist/
+*.egg-info/
+.eggs/
+*.so
+
+# Package managers
+vendor/
+node_modules/
+composer.lock
+
+# ============================================
+# TEST & CI/CD
+# ============================================
+
+# Coverage reports
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Test outputs
+test_results/
+test_reports/
+junit.xml
+
+# CI/CD
+.github/workflows/
+.gitlab-ci.yml.local
+.travis.yml.local
+
+# ============================================
+# ARCHIVES & BACKUPS
+# ============================================
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.7z
+*.rar
+
+# Backups
+*.backup
+*.bak
+*.backup.*
+*~
+*#
+
+# System backups
+.backup/
+backups/
+
+# ============================================
+# OS SPÉCIFIQUES
+# ============================================
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Linux
+.Xauthority
+.xsession*
+.bash_history
+.zsh_history
+
+# ============================================
+# FICHIERS EXEMPLES À ADAPTER
+# ============================================
+
+# Ne pas ignorer (à adapter localement):
+# radius/clients.conf.example → radius/clients.conf
+# wazuh/manager.conf.example → /var/ossec/etc/ossec.conf
+
+# ============================================
+# FICHIERS PERSONNELS (ADAPTER SELON BESOIN)
+# ============================================
+
+# Fichiers de configuration personnelle
+local_config.php
+local_settings.sh
+my_passwords.txt
+personal_notes.md
+
+# Tests personnels
+my_tests/
+test_local/
+dev_test/
+
+# ============================================
+# DOSSIERS À IGNORER (VARIABLES)
+# ============================================
+
+# Répertoires temporaires
+/tmp/
+/temp/
+/var/
+/venv/
+/env/
+
+# Fichiers résultats tests
+diag_*.txt
+diag_*.log
+diag_*.json
+diag_*.html
+test_*.log
+test_*.json
+
+# ============================================
+# RÈGLES SPÉCIALES
+# ============================================
+
+# Ignorer SAUF pour les fichiers .example
+*.local
+!*.example
+!*.example.*
+
+# Ignorer tous les fichiers .bak SAUF les imports SQL
+*.bak
+!radius/sql/*.bak
+
+# ============================================
+# FICHIERS SPÉCIFIQUES AU PROJET
+# ============================================
+
+# Base de données (temporaires)
+*.db
+*.sqlite
+*.sqlite3
+
+# Fichiers de droits d'accès
+.htpasswd
+.htaccess.local
+
+# Configuration Apache/Nginx personnalisée
+apache2.conf.local
+nginx.conf.local
+
+# ============================================
+# GIT SPÉCIFIQUE
+# ============================================
+
+# Fichiers merge temporaires
+*.orig
+*.BACKUP.*
+*.BASE.*
+*.LOCAL.*
+*.REMOTE.*
+
+# Stash temporaires
+.git/
+
+# ============================================
+# NOTES DÉVELOPPEUR
+# ============================================
+
+# À placer ici vos fichiers personnels à ignorer
+# Exemple:
+# TODO.txt
+# NOTES.md
+# my_test_credentials.txt

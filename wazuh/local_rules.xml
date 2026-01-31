@@ -1,0 +1,300 @@
+<!--
+  local_rules.xml - Règles Wazuh personnalisées SAE 5.01
+  
+  Fichier: wazuh/local_rules.xml
+  Auteur: GroupeNani
+  Date: 4 janvier 2026
+  
+  Description:
+    Règles personnalisées pour détecter les alertes sécurité spécifiques au projet.
+    À copier vers: /var/ossec/etc/rules/local_rules.xml
+    
+  Événements détectés:
+    - Authentifications RADIUS (succès/échecs)
+    - Tentatives bruteforce (5+ échecs en 5 min)
+    - Changements utilisateurs RADIUS
+    - Modifications fichiers configuration critique
+    - Arrêt services critiques
+    - Escalade de privilèges (sudo)
+-->
+
+<group name="sae501,radius,authentication">
+
+  <!-- ============================================
+       AUTHENTIFICATIONS RADIUS RÉUSSIES
+       ============================================ -->
+  
+  <!-- Détecte une authentification RADIUS réussie -->
+  <rule id="5001" level="3">
+    <match>Received Access-Accept</match>
+    <group>radius_auth_success</group>
+    <description>Authentification RADIUS réussie</description>
+  </rule>
+
+  <!-- Détecte authentification réussie pour un utilisateur spécifique -->
+  <rule id="5002" level="3">
+    <match>Received Access-Accept|alice@gym.fr|bob@gym.fr|charlie@gym.fr|david@gym.fr|emma@gym.fr</match>
+    <group>radius_auth_success</group>
+    <description>Authentification réussie pour utilisateur RADIUS</description>
+  </rule>
+
+  <!-- ============================================
+       AUTHENTIFICATIONS RADIUS ÉCHOUÉES
+       ============================================ -->
+  
+  <!-- Détecte une authentification RADIUS échouée -->
+  <rule id="5010" level="5">
+    <match>Access-Reject|authentication failed|Invalid credentials</match>
+    <group>radius_auth_failure</group>
+    <description>Authentification RADIUS échouée - Accès refusé</description>
+  </rule>
+
+  <!-- Alerte: Authentifications RADIUS échouées répétées (bruteforce simple) -->
+  <rule id="5011" level="8">
+    <if_matched_group>radius_auth_failure</if_matched_group>
+    <same_source_ip>yes</same_source_ip>
+    <group>radius_bruteforce</group>
+    <description>Tentatives multiples d'authentification RADIUS échouées (suspect bruteforce)</description>
+  </rule>
+
+  <!-- ============================================
+       ERREURS CRITIQUES RADIUS
+       ============================================ -->
+  
+  <!-- Erreur TLS/certificat -->
+  <rule id="5020" level="7">
+    <match>TLS error|certificate error|SSL error|PEAP error</match>
+    <group>radius_tls_error</group>
+    <description>Erreur TLS/Certificat dans authentification RADIUS</description>
+  </rule>
+
+  <!-- Erreur de connexion base de données -->
+  <rule id="5021" level="8">
+    <match>db error|database connection|SQL error|Connection refused</match>
+    <group>radius_database_error</group>
+    <description>Erreur de connexion à la base de données RADIUS</description>
+  </rule>
+
+  <!-- ============================================
+       ARRÊT SERVICES CRITIQUES
+       ============================================ -->
+  
+  <!-- FreeRADIUS arrêté -->
+  <rule id="5030" level="8">
+    <match>freeradius stopped|freeradius terminated|freeradius died</match>
+    <group>service_stopped</group>
+    <description>Service FreeRADIUS arrêté - Authentification Wi-Fi compromise</description>
+  </rule>
+
+  <!-- MySQL/MariaDB arrêté -->
+  <rule id="5031" level="8">
+    <match>mysqld stopped|mysqld terminated|mysqld died</match>
+    <group>service_stopped</group>
+    <description>Service MySQL arrêté - Base de données inaccessible</description>
+  </rule>
+
+  <!-- ============================================
+       MODIFICATIONS CRITIQUES
+       ============================================ -->
+  
+  <!-- Fichier clients.conf modifié -->
+  <rule id="5040" level="7">
+    <match>/etc/freeradius/3.0/clients.conf</match>
+    <group>file_modified</group>
+    <description>Fichier de configuration RADIUS modifié (clients.conf)</description>
+  </rule>
+
+  <!-- Fichier utilisateurs modifié -->
+  <rule id="5041" level="7">
+    <match>/etc/freeradius/3.0/users</match>
+    <group>file_modified</group>
+    <description>Fichier utilisateurs RADIUS modifié</description>
+  </rule>
+
+  <!-- Configuration SSH modifiée -->
+  <rule id="5042" level="6">
+    <match>/etc/ssh/sshd_config</match>
+    <group>file_modified</group>
+    <description>Configuration SSH modifiée</description>
+  </rule>
+
+  <!-- Certificats RADIUS modifiés -->
+  <rule id="5043" level="8">
+    <match>/etc/freeradius/3.0/certs/server.pem|/etc/freeradius/3.0/certs/server.key</match>
+    <group>file_modified</group>
+    <description>Certificats RADIUS modifiés - Risque de sécurité</description>
+  </rule>
+
+  <!-- ============================================
+       SSH - AUTHENTIFICATIONS ÉCHOUÉES
+       ============================================ -->
+  
+  <!-- SSH: Tentatives multiples de connexion échouées (bruteforce simple) -->
+  <rule id="5050" level="7">
+    <if_matched_group>authentication_failed</if_matched_group>
+    <same_source_ip>yes</same_source_ip>
+    <group>ssh_bruteforce</group>
+    <description>Tentatives multiples de connexion SSH échouées (suspect bruteforce)</description>
+  </rule>
+
+
+  <!-- SSH: Connexion root refusée -->
+  <rule id="5051" level="5">
+    <match>Failed password for root|authentication failure|user=root</match>
+    <group>ssh_root_attack</group>
+    <description>Tentative connexion SSH en tant que root - Attaque probable</description>
+  </rule>
+
+  <!-- ============================================
+       ESCALADE DE PRIVILÈGES
+       ============================================ -->
+  
+  <!-- Sudo: Tentative sans authentification -->
+  <rule id="5060" level="7">
+    <match>sudo:.*COMMAND=|sudo.*authentication failure</match>
+    <group>privilege_escalation</group>
+    <description>Tentative de changement de privilèges via sudo</description>
+  </rule>
+
+  <!-- Sudo: Multiple failed attempts -->
+  <rule id="5061" level="8">
+    <if_matched_group>privilege_escalation</if_matched_group>
+    <same_source_ip>yes</same_source_ip>
+    <group>privilege_escalation_attack</group>
+    <description>Escalade de privilèges - Tentatives multiples (3+ en 5 min)</description>
+  </rule>
+
+  <!-- ============================================
+       ÉVÉNEMENTS SYSTÈME CRITIQUES
+       ============================================ -->
+  
+  <!-- UFW: Paquet bloqué -->
+  <rule id="5070" level="4">
+    <match>UFW BLOCK</match>
+    <group>firewall_blocked</group>
+    <description>Paquet bloqué par UFW (tentative accès port fermé)</description>
+  </rule>
+
+  <!-- Port 1812 (RADIUS): Accès non autorisé -->
+  <rule id="5071" level="6">
+    <match>UFW BLOCK.*1812|UFW BLOCK.*1813</match>
+    <group>radius_port_blocked</group>
+    <description>Tentative accès port RADIUS depuis IP non autorisée</description>
+  </rule>
+
+  <!-- ============================================
+       ANOMALIES PHP-ADMIN
+       ============================================ -->
+  
+  <!-- PHP-Admin: SQL injection attempt détecté -->
+  <rule id="5080" level="7">
+    <match>SQL injection|union select|drop table|delete from</match>
+    <group>web_attack</group>
+    <description>Tentative d'injection SQL détectée dans logs PHP-Admin</description>
+  </rule>
+
+  <!-- PHP-Admin: Erreur 500 (problème grave) -->
+  <rule id="5081" level="6">
+    <match>500 Internal Server Error</match>
+    <group>web_error</group>
+    <description>Erreur 500 sur interface PHP-Admin</description>
+  </rule>
+
+  <!-- ============================================
+       ALERTES RÉSEAU CRITIQUES
+       ============================================ -->
+  
+  <!-- Scan de port détecté -->
+  <rule id="5090" level="6">
+    <match>nmap|masscan|port scan</match>
+    <group>network_scan</group>
+    <description>Scan de port détecté sur le réseau</description>
+  </rule>
+
+  <!-- Tentative connexion port SSH non-standard -->
+  <rule id="5091" level="5">
+    <match>SSH|sshd|ssh_connection|ssh_login</match>
+    <group>ssh_activity</group>
+    <description>Activité SSH détectée</description>
+  </rule>
+
+  <!-- ============================================
+       ALERTES D'INTÉGRITÉ FICHIERS
+       ============================================ -->
+  
+  <!-- Fichier FreeRADIUS modifié -->
+  <rule id="5100" level="7">
+    <match>File integrity|FIM alert|/etc/freeradius</match>
+    <group>integrity_check</group>
+    <description>Intégrité fichier FreeRADIUS compromise</description>
+  </rule>
+
+  <!-- Répertoire web modifié -->
+  <rule id="5101" level="6">
+    <match>File integrity|FIM alert|/var/www/html</match>
+    <group>integrity_check</group>
+    <description>Intégrité répertoire web compromise</description>
+  </rule>
+
+  <!-- Fichier système modifié -->
+  <rule id="5102" level="8">
+    <match>File integrity|FIM alert|/etc/passwd|/etc/shadow|/etc/sudoers</match>
+    <group>integrity_check</group>
+    <description>Fichier système critique modifié - Sécurité compromise</description>
+  </rule>
+
+  <!-- ============================================
+       ALERTES COMPOSÉES (Meta-rules)
+       ============================================ -->
+  
+  <!-- Attaque multi-vecteurs détectée -->
+  <rule id="5110" level="9">
+    <if_matched_group>radius_bruteforce,ssh_bruteforce,privilege_escalation</if_matched_group>
+    <same_source_ip>yes</same_source_ip>
+    <group>multi_vector_attack</group>
+    <description>Attaque multi-vecteurs détectée - Incident sécurité grave</description>
+  </rule>
+
+  <!-- Modification critiques + authentification suspecte -->
+  <rule id="5111" level="9">
+    <if_matched_group>file_modified,radius_auth_failure</if_matched_group>
+    <group>compromise_attempt</group>
+    <description>Tentative de compromission du serveur - Alerter administrateur immédiatement</description>
+  </rule>
+
+</group>
+
+<!-- ============================================
+     NOTES DE CONFIGURATION
+     ============================================ -->
+<!--
+  Niveaux d'alerte Wazuh:
+  
+  0-3: Notifications (logs normaux)
+  4-5: Avertissements (comportements inhabituels)
+  6-7: Alertes (événements sécurité)
+  8-9: Alertes critiques (attaques/compromissions)
+  10-15: Sévérité maximale (alerter immédiatement)
+  
+  Tags utilisés:
+  - radius_auth_success: Authentification réussie
+  - radius_auth_failure: Authentification échouée
+  - radius_bruteforce: Tentatives bruteforce RADIUS
+  - radius_tls_error: Erreurs TLS/certificat
+  - ssh_bruteforce: Tentatives bruteforce SSH
+  - privilege_escalation: Tentatives escalade de privilèges
+  - file_modified: Modification fichier critique
+  - integrity_check: Vérification intégrité FIM
+  - service_stopped: Service critique arrêté
+  
+  À copier:
+  $ sudo cp wazuh/local_rules.xml /var/ossec/etc/rules/
+  $ sudo chown root:wazuh /var/ossec/etc/rules/local_rules.xml
+  $ sudo chmod 640 /var/ossec/etc/rules/local_rules.xml
+  
+  Redémarrer Wazuh:
+  $ sudo systemctl restart wazuh-manager
+  
+  Vérifier:
+  $ sudo tail -f /var/ossec/logs/ossec.log
+-->
