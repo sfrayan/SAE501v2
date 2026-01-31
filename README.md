@@ -29,7 +29,7 @@
 - ✅ Mettre en place un **réseau Wi-Fi d'entreprise** sécurisé et un **réseau invité isolé**
 - ✅ Implémenter une **interface de gestion** (PHP) pour ajouter/supprimer des utilisateurs
 - ✅ Intégrer une **supervision centralisée** (Wazuh) avec détection d'intrusion
-- ✅ Tester l'**isolement réseau** entre VLAN (staff/guests/managers)
+- ✅ Tester l'**isolement réseau** (staff/guests/managers)
 
 ### Sécurité
 
