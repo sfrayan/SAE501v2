@@ -7,13 +7,13 @@
 # Fichier: scripts/install_wazuh.sh
 # Auteur: GroupeNani
 # Date: 31 janvier 2026
-# Version: 2.1 (Fix permissions)
+# Version: 2.2 (SSL Dashboard fixé)
 #
 # Description:
 #   Installation automatique complète :
 #   - Wazuh Manager (surveillance)
 #   - Wazuh Indexer (stockage)
-#   - Wazuh Dashboard (interface web)
+#   - Wazuh Dashboard (interface web HTTPS)
 #   - Configuration rsyslog PHP-Admin
 #   - Configuration rsyslog FreeRADIUS
 #
@@ -225,12 +225,34 @@ install_wazuh_dashboard() {
     apt-get install -y wazuh-dashboard >> "$LOG_FILE" 2>&1
     log_success "Wazuh Dashboard installé"
     
+    log_info "Génération certificat SSL auto-signé..."
+    mkdir -p /etc/wazuh-dashboard/certs
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout /etc/wazuh-dashboard/certs/dashboard.key \
+      -out /etc/wazuh-dashboard/certs/dashboard.crt \
+      -subj "/C=FR/ST=IDF/L=Paris/O=SAE/CN=${NETWORK_HOST}" >> "$LOG_FILE" 2>&1
+    chown wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs/dashboard.* >> "$LOG_FILE" 2>&1
+    chmod 600 /etc/wazuh-dashboard/certs/dashboard.* >> "$LOG_FILE" 2>&1
+    log_success "Certificat SSL généré"
+    
     log_info "Configuration de Wazuh Dashboard..."
     cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<EOF
 server.host: "0.0.0.0"
 server.port: 443
+
+# SSL/TLS pour HTTPS
+server.ssl.enabled: true
+server.ssl.certificate: /etc/wazuh-dashboard/certs/dashboard.crt
+server.ssl.key: /etc/wazuh-dashboard/certs/dashboard.key
+
+# Connexion à Indexer (HTTP interne)
 opensearch.hosts: ["http://${NETWORK_HOST}:9200"]
 opensearch.ssl.verificationMode: none
+
+# Configuration de base
+opensearch.requestHeadersWhitelist: ["securitytenant","Authorization"]
+opensearch.username: "admin"
+opensearch.password: "admin"
 EOF
     
     chown wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/opensearch_dashboards.yml
@@ -242,8 +264,8 @@ EOF
     systemctl enable wazuh-dashboard >> "$LOG_FILE" 2>&1
     systemctl start wazuh-dashboard >> "$LOG_FILE" 2>&1
     
-    log_info "Attente initialisation Dashboard (20 secondes)..."
-    sleep 20
+    log_info "Attente initialisation Dashboard (25 secondes)..."
+    sleep 25
     
     if systemctl is-active --quiet wazuh-dashboard; then
         log_success "Wazuh Dashboard démarré"
@@ -305,7 +327,7 @@ verify_installation() {
 
 main() {
     log_info "╔═════════════════════════════════════════════╗"
-    log_info "║  Installation Wazuh Complète (v2.1)          ║"
+    log_info "║  Installation Wazuh Complète (v2.2)          ║"
     log_info "║  Manager + Indexer + Dashboard + rsyslog   ║"
     log_info "║  $(date +"%Y-%m-%d %H:%M:%S")                        ║"
     log_info "╚═════════════════════════════════════════════╝"
@@ -349,11 +371,11 @@ main() {
     echo ""
     log_info "Accès au Dashboard Wazuh:"
     echo "  URL: https://${NETWORK_HOST}"
-    echo "  (Acceptez le certificat auto-signé)"
+    echo "  Certificat: auto-signé (acceptez l'exception SSL)"
     echo ""
     log_info "Services installés:"
     echo "  ✓ Wazuh Manager (port 1514 TCP agents, 514 UDP syslog)"
-    echo "  ✓ Wazuh Indexer (port 9200)"
+    echo "  ✓ Wazuh Indexer (port 9200 HTTP)"
     echo "  ✓ Wazuh Dashboard (port 443 HTTPS)"
     echo "  ✓ rsyslog PHP-Admin (/var/log/php-admin.log)"
     echo ""
