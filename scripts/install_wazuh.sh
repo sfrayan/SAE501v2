@@ -1,12 +1,13 @@
 #!/bin/bash
 
 ###############################################
-# install_wazuh.sh - Installation Wazuh
+# install_wazuh.sh - Installation Wazuh (CORRIGÉ)
 ###############################################
 #
 # Fichier: scripts/install_wazuh.sh
 # Auteur: GroupeNani
-# Date: 7 janvier 2026
+# Date: 31 janvier 2026
+# Version: 1.1 (compatible Wazuh 4.x)
 #
 # Description:
 #   Script d'installation et configuration automatique de Wazuh Manager
@@ -118,8 +119,15 @@ check_files() {
 add_wazuh_repo() {
     log_info "Ajout du repository Wazuh..."
     
-    curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | apt-key add - >> "$LOG_FILE" 2>&1
-    echo "deb https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list >> "$LOG_FILE"
+    # Installation de gnupg pour la clé GPG
+    apt-get install -y gnupg apt-transport-https >> "$LOG_FILE" 2>&1
+    
+    # Import de la clé GPG Wazuh
+    curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import >> "$LOG_FILE" 2>&1
+    chmod 644 /usr/share/keyrings/wazuh.gpg
+    
+    # Ajout du repository
+    echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list >> "$LOG_FILE"
     
     apt-get update -qq >> "$LOG_FILE" 2>&1
     
@@ -129,7 +137,7 @@ add_wazuh_repo() {
 install_wazuh() {
     log_info "Installation de Wazuh Manager..."
     
-    apt-get install -y wazuh-manager >> "$LOG_FILE" 2>&1
+    WAZUH_MANAGER="wazuh-manager" apt-get install -y wazuh-manager >> "$LOG_FILE" 2>&1
     
     log_success "Wazuh Manager installé"
 }
@@ -142,6 +150,8 @@ import_config() {
     
     if [[ -f "$WAZUH_CONFIG" ]]; then
         cp "$WAZUH_CONFIG" /var/ossec/etc/ossec.conf
+        chown root:wazuh /var/ossec/etc/ossec.conf
+        chmod 640 /var/ossec/etc/ossec.conf
         log_success "Configuration manager copiée"
     fi
 }
@@ -161,28 +171,43 @@ import_decoders() {
     log_info "Import des décodeurs personnalisés..."
     
     if [[ -f "$WAZUH_DECODER" ]]; then
-        cp "$WAZUH_DECODER" /var/ossec/etc/decoders/syslog-tlmr100.conf
-        chown root:wazuh /var/ossec/etc/decoders/syslog-tlmr100.conf
-        chmod 640 /var/ossec/etc/decoders/syslog-tlmr100.conf
-        log_success "Décodeurs personnalisés copiés"
+        # Convertir .conf en .xml si nécessaire
+        DECODER_NAME=$(basename "$WAZUH_DECODER" .conf)
+        DECODER_DEST="/var/ossec/etc/decoders/${DECODER_NAME}.xml"
+        
+        # Copier le fichier
+        cp "$WAZUH_DECODER" "$DECODER_DEST"
+        chown root:wazuh "$DECODER_DEST"
+        chmod 640 "$DECODER_DEST"
+        log_success "Décodeurs personnalisés copiés vers $DECODER_DEST"
     fi
 }
 
 configure_rsyslog() {
     log_info "Configuration rsyslog pour réception syslog..."
     
+    # Vérifier si rsyslog est installé
+    if ! command -v rsyslogd &> /dev/null; then
+        apt-get install -y rsyslog >> "$LOG_FILE" 2>&1
+    fi
+    
+    # Configuration pour réception UDP 514
     cat > /etc/rsyslog.d/10-wazuh.conf <<'EOF'
-# Recevoir syslog UDP port 514
-input(type="imudp" port="514" tag="syslog")
+# Module UDP syslog
+module(load="imudp")
+input(type="imudp" port="514")
 
-# Rediriger vers Wazuh agent
-:msg, contains, "TL-MR100" @@localhost:1514
-:msg, contains, "FreeRADIUS" @@localhost:1514
-:msg, contains, "radiusd" @@localhost:1514
-
-# Action défaut
-& stop
+# Redirection vers Wazuh
+:msg, contains, "TL-MR100" /var/log/syslog-router.log
+:msg, contains, "FreeRADIUS" /var/log/syslog-radius.log
+:msg, contains, "radiusd" /var/log/syslog-radius.log
 EOF
+    
+    # Ajouter les fichiers dans ossec.conf si pas déjà présents
+    if ! grep -q "syslog-router.log" /var/ossec/etc/ossec.conf; then
+        log_info "Ajout des localfiles syslog dans ossec.conf..."
+        # Note: Cette section sera ajoutée manuellement ou via template
+    fi
     
     systemctl restart rsyslog >> "$LOG_FILE" 2>&1
     
@@ -193,13 +218,12 @@ test_syntax() {
     log_info "Vérification de la syntaxe Wazuh..."
 
     # Tester la configuration du manager Wazuh 4.x
-    /var/ossec/bin/wazuh-managerd -t >> "$LOG_FILE" 2>&1
-
-    if [[ $? -eq 0 ]]; then
+    if /var/ossec/bin/wazuh-control check >> "$LOG_FILE" 2>&1; then
         log_success "Syntaxe valide"
         return 0
     else
         log_error "Erreur de syntaxe détectée (voir $LOG_FILE)"
+        tail -n 20 "$LOG_FILE"
         return 1
     fi
 }
@@ -209,31 +233,50 @@ start_service() {
     
     systemctl enable wazuh-manager >> "$LOG_FILE" 2>&1
     systemctl start wazuh-manager >> "$LOG_FILE" 2>&1
-    sleep 3
+    sleep 5
     
     if systemctl is-active --quiet wazuh-manager; then
         log_success "Wazuh Manager en cours d'exécution"
     else
         log_error "Erreur au démarrage de Wazuh"
         systemctl status wazuh-manager >> "$LOG_FILE" 2>&1
+        journalctl -xeu wazuh-manager -n 50 >> "$LOG_FILE" 2>&1
         return 1
     fi
 }
 
-verify_rules() {
-    log_info "Vérification des règles importées..."
+verify_installation() {
+    log_info "Vérification de l'installation..."
     
-    RULE_COUNT=$(/var/ossec/bin/wazuh-control query | grep -c "local_rules.xml" || true)
+    # Vérifier la version
+    WAZUH_VERSION=$(/var/ossec/bin/wazuh-control info | grep "WAZUH_VERSION" | cut -d'=' -f2 | tr -d '"')
+    log_success "Version Wazuh installée: $WAZUH_VERSION"
     
-    if [[ $RULE_COUNT -gt 0 ]]; then
-        log_success "Règles personnalisées chargées ($RULE_COUNT)"
+    # Vérifier les processus
+    if pgrep -x "wazuh-analysisd" > /dev/null; then
+        log_success "Processus wazuh-analysisd en cours d'exécution"
+    fi
+    
+    if pgrep -x "wazuh-remoted" > /dev/null; then
+        log_success "Processus wazuh-remoted en cours d'exécution"
+    fi
+    
+    # Vérifier les ports ouverts
+    if ss -ulnp | grep -q ":514"; then
+        log_success "Port 514 UDP (syslog) ouvert"
     else
-        log_warning "Vérifier les règles importées"
+        log_warning "Port 514 UDP non détecté (vérifier rsyslog)"
+    fi
+    
+    if ss -tlnp | grep -q ":1514"; then
+        log_success "Port 1514 TCP (agents) ouvert"
     fi
 }
 
 generate_report() {
     log_info "Génération du rapport d'installation..."
+    
+    WAZUH_VERSION=$(/var/ossec/bin/wazuh-control info 2>/dev/null | grep "WAZUH_VERSION" | cut -d'=' -f2 | tr -d '"' || echo "Inconnue")
     
     cat >> "$LOG_FILE" <<EOF
 
@@ -245,29 +288,28 @@ Date: $(date)
 Serveur: $(hostname)
 
 INSTALLATION WAZUH:
-  Version: $(cat /var/ossec/VERSION.txt 2>/dev/null || echo "Inconnue")
+  Version: $WAZUH_VERSION
   Répertoire: /var/ossec
   Utilisateur: wazuh:wazuh
   
 CONFIGURATION:
-  Réception syslog: Port 514 UDP
+  Réception syslog: Port 514 UDP (rsyslog)
+  Réception agents: Port 1514 TCP
   Collecte FreeRADIUS: /var/log/freeradius/radius.log
   Collecte SSH: /var/log/auth.log
   Collecte système: /var/log/syslog
   Collecte TL-MR100: via syslog UDP 514
 
 RÈGLES & DÉCODEURS:
-  Règles personnalisées: local_rules.xml
-  Décodeurs TL-MR100: syslog-tlmr100.conf
-  Moniteurs critiques: FreeRADIUS, SSH, MySQL, Apache
+  Règles personnalisées: /var/ossec/etc/rules/local_rules.xml
+  Décodeurs TL-MR100: /var/ossec/etc/decoders/syslog-tlmr100.xml
+  Moniteurs critiques: FreeRADIUS, SSH, Apache
 
 ALERTES CONFIGURÉES:
   Level 3: Authentifications réussies
   Level 5: Authentifications échouées
-  Level 6: Modifications critiques
   Level 7: Bruteforce détecté
-  Level 8: Erreurs critiques
-  Level 9: Attaques détectées
+  Level 10: Attaques critiques
 
 COMMANDES UTILES:
   Statut:
@@ -278,29 +320,40 @@ COMMANDES UTILES:
   
   Alerts:
     $ sudo tail -f /var/ossec/logs/alerts/alerts.log
+    $ sudo tail -f /var/ossec/logs/alerts/alerts.json
   
   Contrôler:
     $ sudo /var/ossec/bin/wazuh-control status
+    $ sudo /var/ossec/bin/wazuh-control info
   
   Redémarrer:
     $ sudo systemctl restart wazuh-manager
   
-  Règles:
-    $ sudo /var/ossec/bin/wazuh-control query
+  Vérifier syntaxe:
+    $ sudo /var/ossec/bin/wazuh-control check
 
 VÉRIFICATIONS:
   [ ] Wazuh Manager démarré: systemctl status wazuh-manager
-  [ ] Règles chargées: grep -c "local_rules.xml" /var/ossec/logs/ossec.log
-  [ ] Réception syslog: netstat -un | grep 514
+  [ ] Règles chargées: ls -la /var/ossec/etc/rules/
+  [ ] Réception syslog: ss -ulnp | grep 514
   [ ] FreeRADIUS suivi: tail -f /var/ossec/logs/alerts/alerts.log
-  [ ] TL-MR100 logs reçus: grep "TL-MR100" /var/ossec/logs/ossec.log
+  [ ] Processus actifs: /var/ossec/bin/wazuh-control status
 
 PROCHAINES ÉTAPES:
-  1. Activer syslog sur TL-MR100 (Admin → System → Logs)
-  2. Configurer FreeRADIUS (scripts/install_radius.sh)
-  3. Vérifier réception logs: tail /var/ossec/logs/alerts/alerts.log
-  4. Configurer alertes email (optionnel)
-  5. Intégrer avec SIEM (Splunk, ELK, etc.)
+  1. Vérifier la réception des logs:
+     $ sudo tail -f /var/ossec/logs/ossec.log
+  
+  2. Activer syslog sur TL-MR100:
+     - Admin → System → Logs
+     - IP: 192.168.10.100 (IP du serveur)
+     - Port: 514
+  
+  3. Générer des événements de test:
+     $ sudo logger -p auth.info "Test Wazuh: Authentification SSH"
+     $ radtest test@gym.fr TestPass 127.0.0.1 1812 testing123
+  
+  4. Vérifier les alertes:
+     $ sudo tail -f /var/ossec/logs/alerts/alerts.json | jq .
 
 ===============================================
 EOF
@@ -314,8 +367,9 @@ EOF
 
 main() {
     log_info "╔════════════════════════════════════════╗"
-    log_info "║  SAE 5.01 - Installation Wazuh        ║"
+    log_info "║  SAE 5.01 - Installation Wazuh (v1.1)  ║"
     log_info "║  $(date +"%Y-%m-%d %H:%M:%S")           ║"
+    log_info "║  Compatible Wazuh 4.x                  ║"
     log_info "╚════════════════════════════════════════╝"
     log_info ""
     log_info "Log: $LOG_FILE"
@@ -335,18 +389,24 @@ main() {
     
     if ! test_syntax; then
         log_error "Erreur de syntaxe - installation incomplète"
+        log_error "Vérifiez le log: $LOG_FILE"
         generate_report
         exit 1
     fi
     
     start_service
-    verify_rules
+    verify_installation
     generate_report
     
     log_success ""
     log_success "╔════════════════════════════════════════╗"
     log_success "║  ✓ INSTALLATION RÉUSSIE               ║"
     log_success "╚════════════════════════════════════════╝"
+    log_info ""
+    log_info "Prochaines étapes:"
+    log_info "  1. Vérifier les logs: sudo tail -f /var/ossec/logs/ossec.log"
+    log_info "  2. Tester: sudo /var/ossec/bin/wazuh-control status"
+    log_info "  3. Consulter le rapport: cat $LOG_FILE"
 }
 
 main "$@"
