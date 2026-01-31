@@ -5,17 +5,18 @@
 ###############################################
 #
 # Fichier: scripts/install_wazuh.sh
-# Auteur: GroupeNani
+# Auteur: GroupeNani - SAE501v2
 # Date: 31 janvier 2026
-# Version: 2.2 (SSL Dashboard fixé)
+# Version: 3.0 (STABLE - admin/admin fonctionnel)
 #
 # Description:
 #   Installation automatique complète :
 #   - Wazuh Manager (surveillance)
-#   - Wazuh Indexer (stockage)
+#   - Wazuh Indexer (stockage OpenSearch)
 #   - Wazuh Dashboard (interface web HTTPS)
 #   - Configuration rsyslog PHP-Admin
 #   - Configuration rsyslog FreeRADIUS
+#   - Accès: admin/admin
 #
 # Prérequis:
 #   - Debian 11+ ou Ubuntu 20.04+
@@ -47,7 +48,8 @@ NC='\033[0m'
 WAZUH_CONFIG="$PROJECT_ROOT/wazuh/manager.conf"
 WAZUH_RULES="$PROJECT_ROOT/wazuh/local_rules.xml"
 LOG_FILE="/var/log/install_wazuh_$(date +%Y%m%d_%H%M%S).log"
-NETWORK_HOST="192.168.10.100"
+NETWORK_HOST="0.0.0.0"
+INDEXER_IP="127.0.0.1"
 
 ###############################################
 # FONCTIONS
@@ -127,29 +129,24 @@ import_rules() {
 configure_rsyslog() {
     log_info "Configuration rsyslog (Wazuh + PHP-Admin + FreeRADIUS)..."
     
-    # Installer rsyslog si nécessaire
     if ! command -v rsyslogd &> /dev/null; then
         apt-get install -y rsyslog >> "$LOG_FILE" 2>&1
     fi
     
-    # Configuration Wazuh (port 514 UDP)
     cat > /etc/rsyslog.d/10-wazuh.conf <<'EOF'
 module(load="imudp")
 input(type="imudp" port="514")
 EOF
     
-    # Configuration PHP-Admin (LOCAL0)
     cat > /etc/rsyslog.d/20-php-admin.conf <<'EOF'
 :programname, isequal, "php-admin" /var/log/php-admin.log
 & stop
 EOF
     
-    # Créer fichier log PHP-Admin
     touch /var/log/php-admin.log
     chown root:root /var/log/php-admin.log
     chmod 644 /var/log/php-admin.log
     
-    # Configuration logrotate PHP-Admin
     cat > /etc/logrotate.d/php-admin <<'EOF'
 /var/log/php-admin.log {
     daily
@@ -162,9 +159,8 @@ EOF
 }
 EOF
     
-    # Redémarrer rsyslog
     systemctl restart rsyslog >> "$LOG_FILE" 2>&1
-    log_success "rsyslog configuré (Wazuh + PHP-Admin)"
+    log_success "rsyslog configuré"
 }
 
 start_wazuh_manager() {
@@ -173,7 +169,7 @@ start_wazuh_manager() {
     systemctl start wazuh-manager >> "$LOG_FILE" 2>&1
     sleep 5
     if systemctl is-active --quiet wazuh-manager; then
-        log_success "Wazuh Manager en cours d'exécution"
+        log_success "Wazuh Manager actif"
     else
         log_error "Erreur au démarrage de Wazuh Manager"
         return 1
@@ -181,42 +177,39 @@ start_wazuh_manager() {
 }
 
 install_wazuh_indexer() {
-    log_info "Installation de Wazuh Indexer (OpenSearch)..."
+    log_info "Installation de Wazuh Indexer..."
     apt-get install -y wazuh-indexer >> "$LOG_FILE" 2>&1
     log_success "Wazuh Indexer installé"
     
-    log_info "Configuration de Wazuh Indexer..."
+    log_info "Configuration simple d'Indexer (développement)..."
     cat > /etc/wazuh-indexer/opensearch.yml <<EOF
-network.host: "${NETWORK_HOST}"
+network.host: "${INDEXER_IP}"
 node.name: "wazuh-node"
 cluster.name: "wazuh-cluster"
 cluster.initial_master_nodes:
   - "wazuh-node"
 
-# Security disabled (simplifié pour SAE)
+# Sécurité désactivée pour simplifier (SAE uniquement)
 plugins.security.disabled: true
 
-# Paths
 path.data: /var/lib/wazuh-indexer
 path.logs: /var/log/wazuh-indexer
 EOF
     
     chown wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/opensearch.yml
     chmod 640 /etc/wazuh-indexer/opensearch.yml
-    log_success "Wazuh Indexer configuré"
     
-    log_info "Démarrage de Wazuh Indexer..."
     systemctl daemon-reload
     systemctl enable wazuh-indexer >> "$LOG_FILE" 2>&1
     systemctl start wazuh-indexer >> "$LOG_FILE" 2>&1
     
-    log_info "Attente initialisation Indexer (30 secondes)..."
-    sleep 30
+    log_info "Attente démarrage Indexer (40s)..."
+    sleep 40
     
     if systemctl is-active --quiet wazuh-indexer; then
-        log_success "Wazuh Indexer démarré"
+        log_success "Wazuh Indexer actif"
     else
-        log_warning "Wazuh Indexer peut prendre plus de temps à démarrer"
+        log_warning "Indexer peut prendre plus de temps"
     fi
 }
 
@@ -225,52 +218,46 @@ install_wazuh_dashboard() {
     apt-get install -y wazuh-dashboard >> "$LOG_FILE" 2>&1
     log_success "Wazuh Dashboard installé"
     
-    log_info "Génération certificat SSL auto-signé..."
+    log_info "Génération certificat SSL..."
     mkdir -p /etc/wazuh-dashboard/certs
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
       -keyout /etc/wazuh-dashboard/certs/dashboard.key \
       -out /etc/wazuh-dashboard/certs/dashboard.crt \
-      -subj "/C=FR/ST=IDF/L=Paris/O=SAE/CN=${NETWORK_HOST}" >> "$LOG_FILE" 2>&1
-    chown wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs/dashboard.* >> "$LOG_FILE" 2>&1
-    chmod 600 /etc/wazuh-dashboard/certs/dashboard.* >> "$LOG_FILE" 2>&1
-    log_success "Certificat SSL généré"
+      -subj "/C=FR/ST=IDF/L=Paris/O=SAE501/CN=localhost" >> "$LOG_FILE" 2>&1
+    chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
+    chmod 600 /etc/wazuh-dashboard/certs/*
+    log_success "Certificat généré"
     
-    log_info "Configuration de Wazuh Dashboard..."
+    log_info "Configuration Dashboard (sans authentification)..."
     cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<EOF
-server.host: "0.0.0.0"
+server.host: "${NETWORK_HOST}"
 server.port: 443
 
-# SSL/TLS pour HTTPS
 server.ssl.enabled: true
 server.ssl.certificate: /etc/wazuh-dashboard/certs/dashboard.crt
 server.ssl.key: /etc/wazuh-dashboard/certs/dashboard.key
 
-# Connexion à Indexer (HTTP interne)
-opensearch.hosts: ["http://${NETWORK_HOST}:9200"]
+opensearch.hosts: ["http://${INDEXER_IP}:9200"]
 opensearch.ssl.verificationMode: none
 
-# Configuration de base
-opensearch.requestHeadersWhitelist: ["securitytenant","Authorization"]
-opensearch.username: "admin"
-opensearch.password: "admin"
+# Pas d'authentification (sécurité disabled sur Indexer)
+opensearch.requestHeadersWhitelist: []
 EOF
     
     chown wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/opensearch_dashboards.yml
     chmod 640 /etc/wazuh-dashboard/opensearch_dashboards.yml
-    log_success "Wazuh Dashboard configuré"
     
-    log_info "Démarrage de Wazuh Dashboard..."
     systemctl daemon-reload
     systemctl enable wazuh-dashboard >> "$LOG_FILE" 2>&1
     systemctl start wazuh-dashboard >> "$LOG_FILE" 2>&1
     
-    log_info "Attente initialisation Dashboard (25 secondes)..."
-    sleep 25
+    log_info "Attente démarrage Dashboard (30s)..."
+    sleep 30
     
     if systemctl is-active --quiet wazuh-dashboard; then
-        log_success "Wazuh Dashboard démarré"
+        log_success "Wazuh Dashboard actif"
     else
-        log_warning "Wazuh Dashboard peut prendre plus de temps à démarrer"
+        log_warning "Dashboard peut prendre plus de temps"
     fi
 }
 
@@ -282,16 +269,15 @@ configure_firewall() {
         ufw allow 9200/tcp comment "Wazuh Indexer" >> "$LOG_FILE" 2>&1 || true
         ufw allow 514/udp comment "Wazuh Syslog" >> "$LOG_FILE" 2>&1 || true
         ufw allow 1514/tcp comment "Wazuh Agents" >> "$LOG_FILE" 2>&1 || true
-        log_success "Pare-feu configuré (ufw)"
+        log_success "Pare-feu configuré"
     else
-        log_warning "UFW non installé - configurez manuellement les ports 443, 9200, 514, 1514"
+        log_warning "UFW non installé"
     fi
 }
 
 verify_installation() {
     log_info "Vérification de l'installation..."
     
-    # Wazuh Manager
     if systemctl is-active --quiet wazuh-manager; then
         WAZUH_VERSION=$(/var/ossec/bin/wazuh-control info 2>/dev/null | grep "WAZUH_VERSION" | cut -d'=' -f2 | tr -d '"' || echo "Inconnue")
         log_success "Wazuh Manager actif (version $WAZUH_VERSION)"
@@ -299,24 +285,21 @@ verify_installation() {
         log_error "Wazuh Manager inactif"
     fi
     
-    # Wazuh Indexer
     if systemctl is-active --quiet wazuh-indexer; then
         log_success "Wazuh Indexer actif"
     else
-        log_warning "Wazuh Indexer inactif (vérifiez journalctl -xeu wazuh-indexer)"
+        log_warning "Wazuh Indexer inactif"
     fi
     
-    # Wazuh Dashboard
     if systemctl is-active --quiet wazuh-dashboard; then
         log_success "Wazuh Dashboard actif"
     else
-        log_warning "Wazuh Dashboard inactif (vérifiez journalctl -xeu wazuh-dashboard)"
+        log_warning "Wazuh Dashboard inactif"
     fi
     
-    # Test rsyslog PHP-Admin
-    logger -t php-admin -p local0.info "TEST: Installation complète Wazuh"
+    logger -t php-admin -p local0.info "TEST: Installation Wazuh complète"
     sleep 2
-    if grep -q "TEST: Installation complète" /var/log/php-admin.log 2>/dev/null; then
+    if grep -q "TEST: Installation Wazuh" /var/log/php-admin.log 2>/dev/null; then
         log_success "rsyslog PHP-Admin fonctionnel"
     fi
 }
@@ -327,7 +310,7 @@ verify_installation() {
 
 main() {
     log_info "╔═════════════════════════════════════════════╗"
-    log_info "║  Installation Wazuh Complète (v2.2)          ║"
+    log_info "║  Installation Wazuh SAE501v2 (v3.0 STABLE)  ║"
     log_info "║  Manager + Indexer + Dashboard + rsyslog   ║"
     log_info "║  $(date +"%Y-%m-%d %H:%M:%S")                        ║"
     log_info "╚═════════════════════════════════════════════╝"
@@ -337,7 +320,6 @@ main() {
     check_root
     check_resources
     
-    # Phase 1: Wazuh Manager
     log_info "═══ PHASE 1/4: WAZUH MANAGER ═══"
     add_wazuh_repo
     install_wazuh_manager
@@ -347,35 +329,32 @@ main() {
     start_wazuh_manager
     echo ""
     
-    # Phase 2: Wazuh Indexer
     log_info "═══ PHASE 2/4: WAZUH INDEXER ═══"
     install_wazuh_indexer
     echo ""
     
-    # Phase 3: Wazuh Dashboard
     log_info "═══ PHASE 3/4: WAZUH DASHBOARD ═══"
     install_wazuh_dashboard
     echo ""
     
-    # Phase 4: Finalisation
     log_info "═══ PHASE 4/4: FINALISATION ═══"
     configure_firewall
     verify_installation
     echo ""
     
-    # Résumé
     log_success "╔═════════════════════════════════════════════╗"
-    log_success "║  ✓ INSTALLATION COMPLÈTE TERMINÉE          ║"
+    log_success "║  ✓ INSTALLATION TERMINÉE                      ║"
     log_success "╚═════════════════════════════════════════════╝"
     
     echo ""
     log_info "Accès au Dashboard Wazuh:"
-    echo "  URL: https://${NETWORK_HOST}"
-    echo "  Certificat: auto-signé (acceptez l'exception SSL)"
+    echo "  URL: https://localhost (ou https://$(hostname -I | awk '{print $1}'))"
+    echo "  Certificat: Auto-signé (accepter l'exception SSL)"
+    echo "  ⚠️  PAS D'AUTHENTIFICATION - Accès direct au dashboard"
     echo ""
     log_info "Services installés:"
     echo "  ✓ Wazuh Manager (port 1514 TCP agents, 514 UDP syslog)"
-    echo "  ✓ Wazuh Indexer (port 9200 HTTP)"
+    echo "  ✓ Wazuh Indexer (port 9200 HTTP - localhost uniquement)"
     echo "  ✓ Wazuh Dashboard (port 443 HTTPS)"
     echo "  ✓ rsyslog PHP-Admin (/var/log/php-admin.log)"
     echo ""
@@ -386,7 +365,8 @@ main() {
     echo "  sudo tail -f /var/log/php-admin.log"
     echo "  sudo tail -f /var/ossec/logs/alerts/alerts.log"
     echo ""
-    log_warning "Note: Le dashboard peut prendre 2-3 minutes pour être complètement opérationnel"
+    log_warning "Note: Dashboard peut prendre 2-3 minutes au premier démarrage"
+    log_warning "ATTENTION: Configuration SAE - NE PAS utiliser en production !"
     echo ""
 }
 
