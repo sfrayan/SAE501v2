@@ -1,2 +1,0 @@
-docs(root): Ajouter documentation complète SAE 5.01 (installation, architecture, tests)
-chore(git): Ajouter .gitignore (sécurité: logs, certs, passwords)
