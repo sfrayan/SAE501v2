@@ -7,7 +7,7 @@
 # Fichier: scripts/install_wazuh.sh
 # Auteur: GroupeNani
 # Date: 31 janvier 2026
-# Version: 2.0 (Complète avec Dashboard)
+# Version: 2.1 (Fix permissions)
 #
 # Description:
 #   Installation automatique complète :
@@ -146,8 +146,8 @@ EOF
     
     # Créer fichier log PHP-Admin
     touch /var/log/php-admin.log
-    chown syslog:adm /var/log/php-admin.log
-    chmod 640 /var/log/php-admin.log
+    chown root:root /var/log/php-admin.log
+    chmod 644 /var/log/php-admin.log
     
     # Configuration logrotate PHP-Admin
     cat > /etc/logrotate.d/php-admin <<'EOF'
@@ -158,7 +158,7 @@ EOF
     compress
     delaycompress
     notifempty
-    create 0640 syslog adm
+    create 0644 root root
 }
 EOF
     
@@ -305,7 +305,7 @@ verify_installation() {
 
 main() {
     log_info "╔═════════════════════════════════════════════╗"
-    log_info "║  Installation Wazuh Complète (v2.0)          ║"
+    log_info "║  Installation Wazuh Complète (v2.1)          ║"
     log_info "║  Manager + Indexer + Dashboard + rsyslog   ║"
     log_info "║  $(date +"%Y-%m-%d %H:%M:%S")                        ║"
     log_info "╚═════════════════════════════════════════════╝"
