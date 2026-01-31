@@ -1,307 +1,130 @@
 <?php
 /**
- * add_user.php - Ajouter un nouvel utilisateur RADIUS
- *
- * Fichier: php-admin/add_user.php
- * Auteur: GroupeNani
- * Date: 4 janvier 2026
- *
- * Description:
- *   Formulaire pour ajouter un nouvel utilisateur dans la base RADIUS.
- *   Crée l'entrée dans la table radcheck et radusergroup.
+ * add_user.php - Ajouter utilisateur RADIUS
+ * Version: 2.0 (avec journalisation Wazuh)
  */
 
-require_once 'config.php';
+include 'config.php';
 
-$message = '';
+// Fonction de journalisation pour Wazuh
+function log_to_wazuh($action, $user, $status, $details = '') {
+    $message = "PHP-Admin: $action | User: $user | Status: $status";
+    if ($details) {
+        $message .= " | Details: $details";
+    }
+    openlog('php-admin', LOG_PID, LOG_LOCAL0);
+    syslog(LOG_INFO, $message);
+    closelog();
+}
+
 $error = '';
-$success = false;
+$success = '';
 
-// Traitement du formulaire
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $password = trim($_POST['password'] ?? '');
-    $password_confirm = trim($_POST['password_confirm'] ?? '');
-    $groupname = trim($_POST['groupname'] ?? 'staff');
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $username = $_POST['username'] ?? '';
+    $password = $_POST['password'] ?? '';
+    $email = $_POST['email'] ?? '';
     
-    // Validations
-    if (empty($username)) {
-        $error = 'Le nom d\'utilisateur est requis';
-    } elseif (!is_valid_email($username)) {
-        $error = 'Le nom d\'utilisateur doit être au format: username@gym.fr';
-    } elseif (empty($password)) {
-        $error = 'Le mot de passe est requis';
-    } elseif (!is_valid_password($password)) {
-        $error = 'Le mot de passe doit contenir au moins ' . MIN_PASSWORD_LENGTH . ' caractères';
-    } elseif ($password !== $password_confirm) {
-        $error = 'Les mots de passe ne correspondent pas';
+    // Validation
+    if (empty($username) || empty($password)) {
+        $error = 'Nom d\'utilisateur et mot de passe requis';
+        log_to_wazuh('ADD_USER_FAILED', $username, 'VALIDATION_ERROR', $error);
     } else {
-        try {
-            $pdo = get_db_connection();
-            
-            // Vérifier si l'utilisateur existe déjà
-            $stmt = $pdo->prepare('SELECT id FROM radcheck WHERE username = ?');
-            $stmt->execute([$username]);
-            
-            if ($stmt->rowCount() > 0) {
-                $error = 'Cet utilisateur existe déjà';
+        // Connexion MySQL
+        $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+        if ($conn->connect_error) {
+            $error = 'Erreur de connexion: ' . $conn->connect_error;
+            log_to_wazuh('ADD_USER_FAILED', $username, 'DB_ERROR', $error);
+        } else {
+            // Vérifier l'existence
+            $sql_check = "SELECT id FROM radcheck WHERE username = ?";
+            $stmt = $conn->prepare($sql_check);
+            $stmt->bind_param('s', $username);
+            $stmt->execute();
+            if ($stmt->get_result()->num_rows > 0) {
+                $error = 'Utilisateur déjà existant';
+                log_to_wazuh('ADD_USER_FAILED', $username, 'DUPLICATE', $error);
             } else {
-                // Insérer dans radcheck
-                $stmt = $pdo->prepare('
-                    INSERT INTO radcheck (username, attribute, op, value)
-                    VALUES (?, ?, ?, ?)
-                ');
-                $stmt->execute([
-                    $username,
-                    'Cleartext-Password',
-                    ':=',
-                    $password
-                ]);
+                // Ajouter utilisateur
+                $sql_insert = "INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'User-Password', ':=', ?)";
+                $stmt = $conn->prepare($sql_insert);
+                $stmt->bind_param('ss', $username, $password);
                 
-                // Insérer dans radusergroup
-                $stmt = $pdo->prepare('
-                    INSERT INTO radusergroup (username, groupname, priority)
-                    VALUES (?, ?, ?)
-                ');
-                $stmt->execute([
-                    $username,
-                    $groupname,
-                    1
-                ]);
-                
-                $success = true;
-                $message = "Utilisateur '$username' ajouté avec succès au groupe '$groupname'";
-                log_info("Utilisateur ajouté: $username (groupe: $groupname)");
-                
-                // Réinitialiser le formulaire
-                $username = '';
-                $password = '';
-                $password_confirm = '';
+                if ($stmt->execute()) {
+                    $success = 'Utilisateur ajouté avec succès';
+                    log_to_wazuh('ADD_USER_SUCCESS', $username, 'SUCCESS', "Email: $email");
+                    
+                    // Ajouter email si fourni
+                    if (!empty($email)) {
+                        $sql_email = "INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Email', ':=', ?)";
+                        $stmt = $conn->prepare($sql_email);
+                        $stmt->bind_param('ss', $username, $email);
+                        $stmt->execute();
+                    }
+                } else {
+                    $error = 'Erreur lors de l\'insertion: ' . $stmt->error;
+                    log_to_wazuh('ADD_USER_FAILED', $username, 'INSERT_ERROR', $error);
+                }
             }
-        } catch (PDOException $e) {
-            $error = 'Erreur lors de l\'ajout: ' . $e->getMessage();
-            log_error("Erreur ajout utilisateur: " . $e->getMessage());
+            $conn->close();
         }
     }
 }
-
 ?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo escape_html(APP_TITLE); ?> - Ajouter Utilisateur</title>
+    <title>Ajouter Utilisateur - PHP-Admin SAE 5.01</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 600px;
-            margin: 40px auto;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            padding: 40px;
-        }
-        
-        .header {
-            margin-bottom: 30px;
-            border-bottom: 3px solid #667eea;
-            padding-bottom: 15px;
-        }
-        
-        .header h1 {
-            color: #333;
-            font-size: 24px;
-            margin-bottom: 5px;
-        }
-        
-        .header p {
-            color: #666;
-            font-size: 14px;
-        }
-        
-        .message {
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            display: none;
-        }
-        
-        .message.success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-            display: block;
-        }
-        
-        .message.error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-            display: block;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #333;
-            font-weight: 500;
-            font-size: 14px;
-        }
-        
-        input[type="text"],
-        input[type="password"],
-        select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 14px;
-            font-family: inherit;
-        }
-        
-        input[type="text"]:focus,
-        input[type="password"]:focus,
-        select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-        
-        .button-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 30px;
-        }
-        
-        button,
-        a.button {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: 5px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-block;
-            text-align: center;
-        }
-        
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
-        }
-        
-        .btn-secondary {
-            background: #e9ecef;
-            color: #333;
-        }
-        
-        .btn-secondary:hover {
-            background: #dee2e6;
-        }
-        
-        .form-hint {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
-        }
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 3px solid #0066cc; padding-bottom: 10px; }
+        .form-group { margin: 15px 0; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: #333; }
+        input[type="text"], input[type="password"], input[type="email"] { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 3px; box-sizing: border-box; }
+        input[type="submit"] { background: #0066cc; color: white; padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; font-weight: bold; }
+        input[type="submit"]:hover { background: #0052a3; }
+        .success { color: green; padding: 10px; background: #e8f5e9; border: 1px solid #4caf50; border-radius: 3px; margin: 10px 0; }
+        .error { color: red; padding: 10px; background: #ffebee; border: 1px solid #f44336; border-radius: 3px; margin: 10px 0; }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>➕ Ajouter Utilisateur</h1>
-            <p>Créer un nouvel utilisateur RADIUS pour l'authentification Wi-Fi</p>
-        </div>
+        <h1>Ajouter Nouvel Utilisateur</h1>
+        
+        <?php if ($error): ?>
+            <div class="error">❌ <?php echo htmlspecialchars($error); ?></div>
+        <?php endif; ?>
         
         <?php if ($success): ?>
-            <div class="message success">✓ <?php echo escape_html($message); ?></div>
-        <?php elseif ($error): ?>
-            <div class="message error">✗ <?php echo escape_html($error); ?></div>
+            <div class="success">✅ <?php echo htmlspecialchars($success); ?></div>
         <?php endif; ?>
         
         <form method="POST">
-            <!-- Utilisateur -->
             <div class="form-group">
-                <label for="username">Nom d'utilisateur *</label>
-                <input 
-                    type="text" 
-                    id="username" 
-                    name="username" 
-                    placeholder="alice@gym.fr"
-                    value="<?php echo escape_html($username ?? ''); ?>"
-                    required
-                >
-                <div class="form-hint">Format: username@gym.fr</div>
+                <label>Nom d'utilisateur (email):</label>
+                <input type="email" name="username" required placeholder="alice@gym.fr">
             </div>
             
-            <!-- Mot de passe -->
             <div class="form-group">
-                <label for="password">Mot de passe *</label>
-                <input 
-                    type="password" 
-                    id="password" 
-                    name="password" 
-                    placeholder="••••••••"
-                    required
-                >
-                <div class="form-hint">Minimum <?php echo MIN_PASSWORD_LENGTH; ?> caractères</div>
+                <label>Mot de passe:</label>
+                <input type="password" name="password" required placeholder="Minimum 8 caractères">
             </div>
             
-            <!-- Confirmation mot de passe -->
             <div class="form-group">
-                <label for="password_confirm">Confirmer mot de passe *</label>
-                <input 
-                    type="password" 
-                    id="password_confirm" 
-                    name="password_confirm" 
-                    placeholder="••••••••"
-                    required
-                >
+                <label>Email (optionnel):</label>
+                <input type="email" name="email" placeholder="alice@example.com">
             </div>
             
-            <!-- Groupe -->
-            <div class="form-group">
-                <label for="groupname">Groupe *</label>
-                <select id="groupname" name="groupname" required>
-                    <option value="staff">Staff (802.1X)</option>
-                    <option value="guests">Guests (Invités)</option>
-                    <option value="managers">Managers (Administrateurs)</option>
-                </select>
-                <div class="form-hint">Détermine les permissions d'accès Wi-Fi</div>
-            </div>
-            
-            <!-- Boutons -->
-            <div class="button-group">
-                <button type="submit" class="btn-primary">Créer Utilisateur</button>
-                <a href="index.php" class="button btn-secondary">Retour</a>
-            </div>
+            <input type="submit" value="Ajouter Utilisateur">
         </form>
+        
+        <hr>
+        <p><a href="index.php">← Retour</a> | <a href="list_users.php">Voir les utilisateurs →</a></p>
     </div>
 </body>
 </html>
