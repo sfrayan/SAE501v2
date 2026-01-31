@@ -7,13 +7,13 @@
 # Fichier: scripts/install_wazuh.sh
 # Auteur: GroupeNani
 # Date: 31 janvier 2026
-# Version: 2.3 (Authentification désactivée)
+# Version: 2.2 (SSL Dashboard fixé)
 #
 # Description:
 #   Installation automatique complète :
 #   - Wazuh Manager (surveillance)
-#   - Wazuh Indexer (stockage, sécurité désactivée)
-#   - Wazuh Dashboard (interface web HTTPS, sans login)
+#   - Wazuh Indexer (stockage)
+#   - Wazuh Dashboard (interface web HTTPS)
 #   - Configuration rsyslog PHP-Admin
 #   - Configuration rsyslog FreeRADIUS
 #
@@ -185,7 +185,7 @@ install_wazuh_indexer() {
     apt-get install -y wazuh-indexer >> "$LOG_FILE" 2>&1
     log_success "Wazuh Indexer installé"
     
-    log_info "Configuration de Wazuh Indexer (sécurité désactivée)..."
+    log_info "Configuration de Wazuh Indexer..."
     cat > /etc/wazuh-indexer/opensearch.yml <<EOF
 network.host: "${NETWORK_HOST}"
 node.name: "wazuh-node"
@@ -193,7 +193,7 @@ cluster.name: "wazuh-cluster"
 cluster.initial_master_nodes:
   - "wazuh-node"
 
-# Security DISABLED (simplifié pour SAE - pas d'authentification)
+# Security disabled (simplifié pour SAE)
 plugins.security.disabled: true
 
 # Paths
@@ -203,7 +203,7 @@ EOF
     
     chown wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/opensearch.yml
     chmod 640 /etc/wazuh-indexer/opensearch.yml
-    log_success "Wazuh Indexer configuré (authentification désactivée)"
+    log_success "Wazuh Indexer configuré"
     
     log_info "Démarrage de Wazuh Indexer..."
     systemctl daemon-reload
@@ -235,7 +235,7 @@ install_wazuh_dashboard() {
     chmod 600 /etc/wazuh-dashboard/certs/dashboard.* >> "$LOG_FILE" 2>&1
     log_success "Certificat SSL généré"
     
-    log_info "Configuration de Wazuh Dashboard (sans authentification)..."
+    log_info "Configuration de Wazuh Dashboard..."
     cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<EOF
 server.host: "0.0.0.0"
 server.port: 443
@@ -245,22 +245,19 @@ server.ssl.enabled: true
 server.ssl.certificate: /etc/wazuh-dashboard/certs/dashboard.crt
 server.ssl.key: /etc/wazuh-dashboard/certs/dashboard.key
 
-# Connexion à Indexer (HTTP sans authentification)
+# Connexion à Indexer (HTTP interne)
 opensearch.hosts: ["http://${NETWORK_HOST}:9200"]
 opensearch.ssl.verificationMode: none
 
-# DÉSACTIVATION de l'authentification OpenSearch Dashboards
-opensearch_security.auth.type: []
-opensearch_security.readonly_mode.roles: []
-opensearch_security.cookie.secure: false
-
 # Configuration de base
 opensearch.requestHeadersWhitelist: ["securitytenant","Authorization"]
+opensearch.username: "admin"
+opensearch.password: "admin"
 EOF
     
     chown wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/opensearch_dashboards.yml
     chmod 640 /etc/wazuh-dashboard/opensearch_dashboards.yml
-    log_success "Wazuh Dashboard configuré (authentification désactivée)"
+    log_success "Wazuh Dashboard configuré"
     
     log_info "Démarrage de Wazuh Dashboard..."
     systemctl daemon-reload
@@ -330,7 +327,7 @@ verify_installation() {
 
 main() {
     log_info "╔═════════════════════════════════════════════╗"
-    log_info "║  Installation Wazuh Complète (v2.3)          ║"
+    log_info "║  Installation Wazuh Complète (v2.2)          ║"
     log_info "║  Manager + Indexer + Dashboard + rsyslog   ║"
     log_info "║  $(date +"%Y-%m-%d %H:%M:%S")                        ║"
     log_info "╚═════════════════════════════════════════════╝"
@@ -375,12 +372,11 @@ main() {
     log_info "Accès au Dashboard Wazuh:"
     echo "  URL: https://${NETWORK_HOST}"
     echo "  Certificat: auto-signé (acceptez l'exception SSL)"
-    echo "  ⚠️  AUCUN LOGIN REQUIS - Accès direct !"
     echo ""
     log_info "Services installés:"
     echo "  ✓ Wazuh Manager (port 1514 TCP agents, 514 UDP syslog)"
-    echo "  ✓ Wazuh Indexer (port 9200 HTTP - auth désactivée)"
-    echo "  ✓ Wazuh Dashboard (port 443 HTTPS - auth désactivée)"
+    echo "  ✓ Wazuh Indexer (port 9200 HTTP)"
+    echo "  ✓ Wazuh Dashboard (port 443 HTTPS)"
     echo "  ✓ rsyslog PHP-Admin (/var/log/php-admin.log)"
     echo ""
     log_info "Vérifications:"
@@ -391,7 +387,6 @@ main() {
     echo "  sudo tail -f /var/ossec/logs/alerts/alerts.log"
     echo ""
     log_warning "Note: Le dashboard peut prendre 2-3 minutes pour être complètement opérationnel"
-    log_warning "ATTENTION: Sécurité désactivée (SAE uniquement) - NE PAS utiliser en production !"
     echo ""
 }
 
