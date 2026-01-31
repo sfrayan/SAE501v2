@@ -1,348 +1,131 @@
 <?php
 /**
- * delete_user.php - Supprimer un utilisateur RADIUS
- *
- * Fichier: php-admin/delete_user.php
- * Auteur: GroupeNani
- * Date: 4 janvier 2026
- *
- * Description:
- *   Supprime un utilisateur RADIUS de la base de données.
- *   Supprime les entrées dans radcheck et radusergroup.
+ * delete_user.php - Supprimer utilisateur RADIUS
+ * Version: 2.0 (avec journalisation Wazuh)
  */
 
-require_once 'config.php';
+include 'config.php';
 
-$username = isset($_GET['username']) ? trim($_GET['username']) : '';
-$message = '';
+// Fonction de journalisation pour Wazuh
+function log_to_wazuh($action, $user, $status, $details = '') {
+    $message = "PHP-Admin: $action | User: $user | Status: $status";
+    if ($details) {
+        $message .= " | Details: $details";
+    }
+    openlog('php-admin', LOG_PID, LOG_LOCAL0);
+    syslog(LOG_WARNING, $message);
+    closelog();
+}
+
 $error = '';
-$success = false;
-$user_exists = false;
-$user_data = null;
+$success = '';
 
-// Récupérer les infos utilisateur
-if (!empty($username)) {
-    try {
-        $pdo = get_db_connection();
-        
-        $stmt = $pdo->prepare('
-            SELECT 
-                rc.username,
-                rug.groupname
-            FROM radcheck rc
-            LEFT JOIN radusergroup rug ON rc.username = rug.username
-            WHERE rc.username = ? AND rc.attribute IN ("Cleartext-Password", "User-Password")
-            LIMIT 1
-        ');
-        $stmt->execute([$username]);
-        $user_data = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if ($user_data) {
-            $user_exists = true;
-        } else {
-            $error = 'Utilisateur non trouvé';
-        }
-    } catch (PDOException $e) {
-        $error = 'Erreur lors de la récupération: ' . $e->getMessage();
-        log_error("Erreur delete_user GET: " . $e->getMessage());
-    }
-}
-
-// Traitement de la suppression
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $confirm = isset($_POST['confirm']) ? true : false;
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $username = $_POST['username'] ?? '';
+    $confirm = $_POST['confirm'] ?? '';
     
-    if (empty($username)) {
-        $error = 'Le nom d\'utilisateur est requis';
-    } elseif (!$confirm) {
-        $error = 'Vous devez confirmer la suppression';
+    // Vérifier la confirmation
+    if ($confirm != 'yes') {
+        $error = 'Veuillez confirmer la suppression';
+        log_to_wazuh('DELETE_USER_FAILED', $username, 'NO_CONFIRMATION', $error);
+    } else if (empty($username)) {
+        $error = 'Nom d\'utilisateur requis';
+        log_to_wazuh('DELETE_USER_FAILED', $username, 'EMPTY_USERNAME', $error);
     } else {
-        try {
-            $pdo = get_db_connection();
-            
-            // Vérifier que l'utilisateur existe
-            $stmt = $pdo->prepare('SELECT id FROM radcheck WHERE username = ?');
-            $stmt->execute([$username]);
-            
-            if ($stmt->rowCount() === 0) {
+        // Connexion MySQL
+        $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+        if ($conn->connect_error) {
+            $error = 'Erreur de connexion: ' . $conn->connect_error;
+            log_to_wazuh('DELETE_USER_FAILED', $username, 'DB_ERROR', $error);
+        } else {
+            // Vérifier l'existence
+            $sql_check = "SELECT id FROM radcheck WHERE username = ?";
+            $stmt = $conn->prepare($sql_check);
+            $stmt->bind_param('s', $username);
+            $stmt->execute();
+            if ($stmt->get_result()->num_rows == 0) {
                 $error = 'Utilisateur non trouvé';
+                log_to_wazuh('DELETE_USER_FAILED', $username, 'NOT_FOUND', $error);
             } else {
-                // Supprimer de radusergroup
-                $stmt = $pdo->prepare('DELETE FROM radusergroup WHERE username = ?');
-                $stmt->execute([$username]);
+                // Supprimer l'utilisateur
+                $sql_delete = "DELETE FROM radcheck WHERE username = ?";
+                $stmt = $conn->prepare($sql_delete);
+                $stmt->bind_param('s', $username);
                 
-                // Supprimer de radcheck
-                $stmt = $pdo->prepare('DELETE FROM radcheck WHERE username = ?');
-                $stmt->execute([$username]);
-                
-                // Supprimer de radreply (si existe)
-                $stmt = $pdo->prepare('DELETE FROM radreply WHERE username = ?');
-                $stmt->execute([$username]);
-                
-                $success = true;
-                $message = "Utilisateur '$username' supprimé avec succès";
-                log_info("Utilisateur supprimé: $username");
-                $user_exists = false;
+                if ($stmt->execute()) {
+                    $success = 'Utilisateur supprimé avec succès';
+                    log_to_wazuh('DELETE_USER_SUCCESS', $username, 'DELETED', "Lignes affectées: " . $stmt->affected_rows);
+                    
+                    // Supprimer aussi de radacct si existe
+                    $sql_acct = "DELETE FROM radacct WHERE username = ?";
+                    $stmt = $conn->prepare($sql_acct);
+                    $stmt->bind_param('s', $username);
+                    $stmt->execute();
+                } else {
+                    $error = 'Erreur lors de la suppression: ' . $stmt->error;
+                    log_to_wazuh('DELETE_USER_FAILED', $username, 'DELETE_ERROR', $error);
+                }
             }
-        } catch (PDOException $e) {
-            $error = 'Erreur lors de la suppression: ' . $e->getMessage();
-            log_error("Erreur suppression utilisateur: " . $e->getMessage());
+            $conn->close();
         }
     }
 }
-
 ?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo escape_html(APP_TITLE); ?> - Supprimer Utilisateur</title>
+    <title>Supprimer Utilisateur - PHP-Admin SAE 5.01</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 600px;
-            margin: 40px auto;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            padding: 40px;
-        }
-        
-        .header {
-            margin-bottom: 30px;
-            border-bottom: 3px solid #e74c3c;
-            padding-bottom: 15px;
-        }
-        
-        .header h1 {
-            color: #333;
-            font-size: 24px;
-            margin-bottom: 5px;
-        }
-        
-        .header p {
-            color: #666;
-            font-size: 14px;
-        }
-        
-        .message {
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            display: none;
-        }
-        
-        .message.success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-            display: block;
-        }
-        
-        .message.error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-            display: block;
-        }
-        
-        .warning-box {
-            background: #fff3cd;
-            border: 1px solid #ffc107;
-            color: #856404;
-            padding: 20px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-        }
-        
-        .warning-box h3 {
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .warning-box p {
-            font-size: 13px;
-            line-height: 1.6;
-        }
-        
-        .user-info {
-            background: #f5f5f5;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-        }
-        
-        .user-info p {
-            margin: 8px 0;
-            font-size: 13px;
-        }
-        
-        .user-info strong {
-            color: #333;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .checkbox {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .checkbox input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-        }
-        
-        .checkbox label {
-            margin: 0;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        
-        .button-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 30px;
-        }
-        
-        button,
-        a.button {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: 5px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-block;
-            text-align: center;
-        }
-        
-        .btn-danger {
-            background: #e74c3c;
-            color: white;
-        }
-        
-        .btn-danger:hover:not(:disabled) {
-            background: #c0392b;
-            transform: translateY(-2px);
-        }
-        
-        .btn-danger:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        .btn-secondary {
-            background: #e9ecef;
-            color: #333;
-        }
-        
-        .btn-secondary:hover {
-            background: #dee2e6;
-        }
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #d32f2f; border-bottom: 3px solid #d32f2f; padding-bottom: 10px; }
+        .form-group { margin: 15px 0; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: #333; }
+        input[type="text"] { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 3px; box-sizing: border-box; }
+        input[type="checkbox"] { margin-right: 5px; }
+        input[type="submit"] { background: #d32f2f; color: white; padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; font-weight: bold; }
+        input[type="submit"]:hover { background: #b71c1c; }
+        .success { color: green; padding: 10px; background: #e8f5e9; border: 1px solid #4caf50; border-radius: 3px; margin: 10px 0; }
+        .error { color: red; padding: 10px; background: #ffebee; border: 1px solid #f44336; border-radius: 3px; margin: 10px 0; }
+        .warning { color: #f57f17; padding: 15px; background: #fff3e0; border: 2px solid #ff9800; border-radius: 3px; margin: 15px 0; font-weight: bold; }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🗑️ Supprimer Utilisateur</h1>
-            <p>Suppression définitive d'un utilisateur RADIUS</p>
-        </div>
+        <h1>⚠️ Supprimer Utilisateur</h1>
+        
+        <div class="warning">⚠️ ATTENTION: Cette action est irréversible !</div>
+        
+        <?php if ($error): ?>
+            <div class="error">❌ <?php echo htmlspecialchars($error); ?></div>
+        <?php endif; ?>
         
         <?php if ($success): ?>
-            <div class="message success">
-                ✓ <?php echo escape_html($message); ?>
-            </div>
-            <div style="text-align: center; margin-top: 30px;">
-                <a href="list_users.php" class="button" style="background: #667eea; color: white; text-decoration: none; padding: 12px 30px; border-radius: 5px;">
-                    Retour à la liste
-                </a>
-            </div>
-        <?php elseif (!$user_exists && $username): ?>
-            <div class="message error">
-                ✗ <?php echo escape_html($error); ?>
-            </div>
-            <div style="text-align: center; margin-top: 30px;">
-                <a href="list_users.php" class="button" style="background: #667eea; color: white; text-decoration: none; padding: 12px 30px; border-radius: 5px;">
-                    Voir les utilisateurs
-                </a>
-            </div>
-        <?php else: ?>
-            <?php if ($error): ?>
-                <div class="message error">✗ <?php echo escape_html($error); ?></div>
-            <?php endif; ?>
-            
-            <?php if ($user_exists && $user_data): ?>
-                <div class="warning-box">
-                    <h3>⚠️ Attention!</h3>
-                    <p>
-                        Vous êtes sur le point de <strong>supprimer définitivement</strong> cet utilisateur.
-                        Cette action <strong>ne peut pas être annulée</strong>. L'utilisateur ne pourra plus
-                        se connecter au Wi-Fi Enterprise.
-                    </p>
-                </div>
-                
-                <div class="user-info">
-                    <p><strong>Utilisateur:</strong> <?php echo escape_html($user_data['username']); ?></p>
-                    <p><strong>Groupe:</strong> <?php echo escape_html($user_data['groupname'] ?? 'N/A'); ?></p>
-                </div>
-                
-                <form method="POST">
-                    <input type="hidden" name="username" value="<?php echo escape_html($user_data['username']); ?>">
-                    
-                    <div class="form-group">
-                        <div class="checkbox">
-                            <input 
-                                type="checkbox" 
-                                id="confirm" 
-                                name="confirm"
-                                required
-                            >
-                            <label for="confirm">
-                                Je confirme la suppression définitive de <strong><?php echo escape_html($user_data['username']); ?></strong>
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="button-group">
-                        <button type="submit" class="btn-danger">Supprimer Définitivement</button>
-                        <a href="list_users.php" class="button btn-secondary">Annuler</a>
-                    </div>
-                </form>
-            <?php else: ?>
-                <div style="text-align: center; padding: 40px 0; color: #999;">
-                    <p>Aucun utilisateur sélectionné</p>
-                    <div style="margin-top: 20px;">
-                        <a href="list_users.php" class="button" style="background: #667eea; color: white; text-decoration: none; padding: 12px 30px; border-radius: 5px; display: inline-block;">
-                            Voir les utilisateurs
-                        </a>
-                    </div>
-                </div>
-            <?php endif; ?>
+            <div class="success">✅ <?php echo htmlspecialchars($success); ?></div>
         <?php endif; ?>
+        
+        <form method="POST">
+            <div class="form-group">
+                <label>Nom d'utilisateur à supprimer:</label>
+                <input type="text" name="username" required placeholder="alice@gym.fr">
+            </div>
+            
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="confirm" value="yes" required>
+                    Je confirme la suppression définitive de cet utilisateur
+                </label>
+            </div>
+            
+            <input type="submit" value="Supprimer l'Utilisateur">
+        </form>
+        
+        <hr>
+        <p><a href="index.php">← Retour</a> | <a href="list_users.php">Voir les utilisateurs →</a></p>
     </div>
 </body>
 </html>
