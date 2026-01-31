@@ -151,9 +151,9 @@
 │  │ SSID: Fitness-Pro      │        │ SSID: Fitness-Guest    │   │
 │  │ Auth: 802.1X (EAP)     │        │ Auth: WPA2-PSK         │   │
 │  │ User: alice@gym.fr     │        │ Password: public       │   │
-│  │ Pass: Alice@123!       │        │ VLAN: 20               │   │
-│  │ VLAN: 10               │        │ Isolation: OUI         │   │
-│  │ IP: 192.168.10.x       │        │ IP: 192.168.20.x       │   │
+│  │ Pass: Alice@123!       │        │                        │   │
+│  │                        │        │ Isolation: OUI         │   │
+│  │                        │        │                        │   │
 │  │ Accès: Réseau complet  │        │ Accès: Internet seul   │   │
 │  └────────────────────────┘        └────────────────────────┘   │
 │                                                                   │
@@ -201,9 +201,9 @@
 
 ```bash
 # Vérifier les prérequis
-lsb_release -d        # Debian 11 ou Ubuntu 20.04+
-free -h               # 4GB RAM
-df -h /               # 20GB disque
+lsb_release -d        # Debian 11
+free -h               # 6GB RAM
+df -h /               # 50GB disque
 
 # Mettre à jour le système
 sudo apt update && sudo apt upgrade -y
@@ -266,15 +266,14 @@ sudo bash scripts/diagnostics.sh
 1. **Brancher le routeur** en RJ45 sur votre ordinateur portable
 2. **Accéder à l'interface d'administration**
    ```
-   URL: http://192.168.0.1
+   URL: http://192.168.10.1
    Admin: admin
    Password: admin
    ```
 
 #### Étape 2.2 : Configuration réseau
 
-1. **Paramètres WAN** → Mode 4G (optionnel, on peut aussi utiliser Ethernet)
-2. **Paramètres LAN** → Configurer IP statique
+**Paramètres LAN** → Configurer IP statique
    ```
    IP LAN: 192.168.10.1
    Masque: 255.255.255.0
@@ -293,8 +292,6 @@ Primary RADIUS Server:
   Port: 1812
   Secret: Pj8K2qL9xR5wM3nP7dF4vB6tH1sQ9cZ2
   
-Secondary (optionnel):
-  (laisser vide ou duplicata du primary)
 ```
 
 #### Étape 2.4 : Configurer les SSID
@@ -304,27 +301,23 @@ Secondary (optionnel):
 **SSID 1 - Entreprise (Fitness-Pro)**
 ```
 SSID: Fitness-Pro
-Channel: 6 (ou 1, 11 selon préférence)
+Channel: auto
 Bandwidth: 20MHz
 Transmit Power: High
 Security:
   - Type: WPA2-Enterprise
   - RADIUS Server: Configuré ci-dessus
-  - VLAN: Enabled (VLAN 10)
-AP Isolation: Disabled (permet client-to-client)
 ```
 
 **SSID 2 - Invités (Fitness-Guest)**
 ```
 SSID: Fitness-Guest
-Channel: 6 (ou autre)
+Channel: auto
 Bandwidth: 20MHz
 Transmit Power: High
 Security:
   - Type: WPA2-PSK
   - Password: GuestPass@2026 (à changer)
-  - VLAN: Enabled (VLAN 20)
-AP Isolation: Enabled (isole les clients les uns des autres)
 Bandwidth Limit: 10 Mbps (optionnel, pour limiter les invités)
 ```
 
@@ -397,22 +390,20 @@ sudo wpa_supplicant -i wlan0 -c ~/fitness-pro.conf -v
 ```bash
 # Voir l'IP obtenue
 ip addr show
-# Doit être 192.168.10.x (VLAN 10 pour Entreprise)
+# Doit être 192.168.10.x
 
-# Ou pour Invités:
-# Doit être 192.168.20.x (VLAN 20 pour Guests)
 ```
 
 #### Étape 3.3 : Test isolement réseau (VLAN)
 
 ```bash
-# Depuis un client STAFF (VLAN 10)
-ping 192.168.10.254          # Gateway STAFF → OK
+# Depuis un client STAFF
+ping 192.168.10.100          # Gateway STAFF → OK
 ping 8.8.8.8                 # Internet → OK
 
-# Depuis un client GUEST (VLAN 20)
-ping 192.168.20.254          # Gateway GUEST → OK
-ping 192.168.10.1            # Routeur (autre VLAN) → BLOQUÉ ✓
+# Depuis un client GUEST 
+ping 192.168.10.100          # Gateway GUEST → OK
+ping 192.168.10.1            # Routeur  → BLOQUÉ ✓
 ping 192.168.10.x (staff)    # Client STAFF → BLOQUÉ ✓
 ping 8.8.8.8                 # Internet → OK
 ```
@@ -575,8 +566,8 @@ sudo grep -i "brute\|failed" /var/ossec/logs/alerts/alerts.json
 #### Étape 5.2 : Vérifier l'isolement invités
 
 ```bash
-# Client STAFF (VLAN 10) tente d'accéder à Client GUEST (VLAN 20)
-ping 192.168.20.x
+# Client STAFF tente d'accéder à Client GUEST
+ping 192.168.10.x
 # BLOQUÉ ✓ (timeout)
 
 # Vérifier avec tcpdump
@@ -678,8 +669,8 @@ Consultez les fichiers dans `docs/` :
   - [ ] Client STAFF se connecte (Fitness-Pro)
   - [ ] Client STAFF obtient IP 192.168.10.x
   - [ ] Client GUEST se connecte (Fitness-Guest)
-  - [ ] Client GUEST obtient IP 192.168.20.x
-  - [ ] VLAN 10 ↔ VLAN 20 : Isolé ✓
+  - [ ] Client GUEST obtient IP 192.168.10.x
+  - [ ] STAFF ↔ GUEST : Isolé ✓
   - [ ] Wazuh reçoit les logs
 
 - [ ] **Phase 4 (Hardening)** - 30 min
@@ -765,7 +756,7 @@ SAE501/
 | 2 | Config routeur | 45 min | 1h |
 | 2 | Configuration SSID + Syslog | 15 min |  |
 | 3 | Tests client Wi-Fi | 20 min | 45 min |
-| 3 | Tests isolement VLAN | 15 min |  |
+| 3 | Tests isolement | 15 min |  |
 | 3 | Supervision Wazuh | 10 min |  |
 | 4 | Hardening SSH/UFW | 15 min | 30 min |
 | 4 | Permissions/Audit | 15 min |  |
@@ -798,7 +789,7 @@ SAE501/
 - Maîtriser les **commandes clés** (radtest, tcpdump, journalctl)
 - Savoir **diagnostiquer un Access-Reject**
 - Connaître l'**architecture multi-sites** (pourquoi RADIUS centralisé)
-- Expliquer l'**isolement VLAN** (why/how)
+- Expliquer l'**isolement** (why/how)
 
 ---
 
@@ -812,20 +803,4 @@ Pour toute question :
 
 ---
 
-## 🏆 Critères d'évaluation
-
-Votre projet sera évalué sur :
-
-1. **Architecture** (10 pts) : Conception robuste et justifiée
-2. **Implémentation** (15 pts) : Tous les services opérationnels
-3. **Sécurité** (15 pts) : Hardening appliqué, PEAP-MSCHAPv2 correct
-4. **Tests** (10 pts) : Preuves d'isolement, supervision fonctionnelle
-5. **Documentation** (10 pts) : README/SETUP/docs complets
-6. **GitLab** (7 pts) : Commits réguliers, journal de bord à jour
-7. **Contrôle écrit** (23 pts) : Questions sur architecture, protocoles, sécurité
-
-**Note max : 100 pts / 7 = ~14,3/20 en examen**
-
----
-
-**🚀 Bon courage !** Lancez l'installation : `cd SAE501 && cat SETUP.md`
+**🚀 Bon courage !**
