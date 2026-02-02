@@ -132,7 +132,7 @@ chown root:freerad "$FR_CONF/mods-available/sql"
 # Activer module SQL
 ln -sf ../mods-available/sql "$FR_CONF/mods-enabled/sql" 2>/dev/null || true
 
-# 9. Configuration module LINELOG pour logging détaillé
+# 9. Configuration module LINELOG pour logging détaillé (SANS collision avec detail.log)
 echo "[9/13] Configuration logging détaillé..."
 cat > "$FR_CONF/mods-available/linelog" <<'EOF'
 linelog {
@@ -143,14 +143,6 @@ linelog {
     permissions = 0640
     
     reference = "messages.%{%{Packet-Type}:-default}"
-}
-
-linelog auth_log {
-    filename = "/var/log/freeradius/radius.log"
-    
-    format = "%t [%{User-Name}] Auth-Type=%{%{control:Auth-Type}:-None} Result=%{%{reply:Packet-Type}:-Unknown} Client=%{%{Packet-Src-IP-Address}:-0.0.0.0} NAS=%{%{NAS-IP-Address}:-unknown} MAC=%{%{Calling-Station-Id}:-unknown}"
-    
-    permissions = 0640
 }
 EOF
 
@@ -183,13 +175,13 @@ cat > /etc/logrotate.d/freeradius <<'LOGROTATE'
 }
 LOGROTATE
 
-# 11. Activer auth_log dans la configuration post-auth
+# 11. Utiliser le linelog pour les logs post-auth (au lieu de créer auth_log duplicate)
 echo "[11/13] Configuration post-auth logging..."
-if ! grep -q "auth_log" "$FR_CONF/sites-available/default"; then
-    sed -i '/post-auth {/a\        auth_log' "$FR_CONF/sites-available/default"
+if ! grep -q "post-auth" "$FR_CONF/sites-available/default"; then
+    sed -i '/post-auth {/a\        linelog' "$FR_CONF/sites-available/default"
 fi
-if ! grep -q "auth_log" "$FR_CONF/sites-available/inner-tunnel"; then
-    sed -i '/post-auth {/a\        auth_log' "$FR_CONF/sites-available/inner-tunnel"
+if ! grep -q "post-auth" "$FR_CONF/sites-available/inner-tunnel"; then
+    sed -i '/post-auth {/a\        linelog' "$FR_CONF/sites-available/inner-tunnel"
 fi
 
 # 12. Génération certificats TLS
@@ -244,7 +236,7 @@ echo "────────────────────────�
 echo "🧪 Test authentification..."
 if radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123 2>&1 | grep -q "Access-Accept"; then
   echo "✅ Test authentification réussi"
-  echo "📄 Vérifier logs: tail -f /var/log/freeradius/radius.log"
+  echo "📝 Vérifier logs: tail -f /var/log/freeradius/radius.log"
 else
   echo "⚠️  Test authentification échoué (vérifier logs)"
 fi
