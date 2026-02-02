@@ -1,4 +1,4 @@
-# Dossier d’architecture
+# Dossier d'architecture
 
 ## 1. Contexte et objectifs
 
@@ -7,130 +7,134 @@ Le projet s'inscrit dans le cadre de la modernisation de l'infrastructure résea
 Les objectifs spécifiques sont :
 - **Homogénéisation Multi-sites :** Déployer une configuration standardisée sur tous les sites, gérée depuis un point central.
 - **Sécurisation du Wi-Fi :** Remplacer les clés partagées (PSK) statiques par une authentification **WPA2-Enterprise (802.1X)** pour le personnel.
-- **Isolation des Invités :** Fournir un accès Internet aux clients via un réseau strictement isolé du Système d'Information (SI).
+- **Isolation des Invités :** Fournir un accès Internet aux clients via un réseau strictement isolé (AP Isolation).
 - **Centralisation :** Héberger les services critiques (FreeRADIUS, MariaDB, Wazuh) sur un serveur Linux unique durci.
 
 ## 2. Périmètre technique
 
 - **SSID « Entreprise » (WPA2-Enterprise) :** Sécurisé par **PEAP-MSCHAPv2** (Login/Mdp dans tunnel TLS).
-- **SSID « Invités » (Isolé) :** Réseau ouvert ou WPA2-PSK avec isolation client (Client Isolation) et pare-feu.
+- **SSID « Invités » (Isolé) :** Réseau avec WPA2-PSK et AP Isolation (Client Isolation) activée.
 - **Supervision Wazuh :** Centralisation des logs (Syslog routeur + Logs RADIUS) et détection d'intrusions.
 - **Durcissement Linux :** Application des recommandations ANSSI (SSH clés, UFW, permissions).
 - **Gestion centralisée des comptes RADIUS :** Interface PHP + MariaDB pour l'administration.
 
 ## 3. Topologie et adressage
 
-### Schéma d'Architecture (Mermaid)
+### Schéma d'Architecture
 
-```mermaid
-graph TD
-    subgraph Siege ["SIÈGE / DATACENTER"]
-        direction TB
-        Srv[("Serveur Linux Central<br>IP: 192.168.10.254<br>(FreeRADIUS, MariaDB, Wazuh)")]
-    end
-
-    subgraph Internet ["INTERNET / WAN"]
-        Cloud((Nuage))
-    end
-
-    subgraph Site1 ["SALLE DE SPORT (Site Pilote)"]
-        direction TB
-        Router["Routeur 4G TP-Link TL-MR100<br>IP LAN: 192.168.10.1"]
-        
-        subgraph VLAN_Ent ["VLAN 10 - ENTREPRISE"]
-            PC_Accueil["PC Accueil<br>.10"]
-            Smartphone_Staff["Smartphone Staff<br>(Wi-Fi 802.1X)"]
-        end
-
-        subgraph VLAN_Inv ["VLAN 20 - INVITÉS (Isolé)"]
-            Smartphone_Guest["Smartphone Client<br>(Wi-Fi Guest)"]
-        end
-    end
-
-    Srv <==> Cloud
-    Cloud <==> Router
-    Router ==> VLAN_Ent
-    Router -.-> VLAN_Inv
-
-    style Srv fill:#f9f,stroke:#333,stroke-width:2px
-    style Router fill:#bbf,stroke:#333,stroke-width:2px
+```
+                    PC PORTABLE (Hôte)
+                    ├─ WiFi (wlan0): Internet via Box
+                    └─ LAN (eth0): Vers routeur TP-Link
+                             │
+                             │ Câble RJ45
+                             ▼
+              ┌───────────────────────────────┐
+              │  ROUTEUR TP-LINK TL-MR100     │
+              │  IP: 192.168.10.1             │
+              ├───────────────────────────────┤
+              │                                │
+              │  SSID: Fitness-Pro            │
+              │  - WPA2-Enterprise            │
+              │  - Auth RADIUS                │
+              │  - Réseau: 192.168.10.0/24     │
+              │                                │
+              │  SSID: Fitness-Guest          │
+              │  - WPA2-PSK                   │
+              │  - AP Isolation activée       │
+              │  - Réseau: 192.168.10.0/24     │
+              │                                │
+              │  RADIUS: 192.168.10.100:1812  │
+              │  Syslog: 192.168.10.100:514   │
+              └───────────────────────────────┘
+                             │
+                             │ Réseau 192.168.10.0/24
+                             ▼
+          ┌───────────────────────────────────┐
+          │      VM DEBIAN 11 (Serveur)        │
+          ├───────────────────────────────────┤
+          │                                    │
+          │  eth0 (Bridge): 192.168.10.100   │
+          │  - Gateway: 192.168.10.1          │
+          │  - Communication avec routeur     │
+          │                                    │
+          │  eth1 (NAT): 10.0.2.15           │
+          │  - Gateway: 10.0.2.2              │
+          │  - Internet pour apt-get          │
+          │                                    │
+          │  Services:                        │
+          │  - FreeRADIUS: 1812/UDP           │
+          │  - MySQL: 3306/TCP (local only)   │
+          │  - Apache/PHP: 80/TCP             │
+          │  - Wazuh: 1514/UDP                │
+          │  - rsyslog: 514/UDP               │
+          └───────────────────────────────────┘
 ```
 
-### Plan d'adressage (Site Pilote)
+### Plan d'adressage
 
 | Zone | Équipement | Interface | Adresse IP | Masque | Rôle |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Siège** | Serveur Linux | `eth0` | `192.168.10.254` | `/24` | Services centraux |
+| **Serveur** | VM Debian 11 | `eth0` (Bridge) | `192.168.10.100` | `/24` | Services centraux |
+| **Serveur** | VM Debian 11 | `eth1` (NAT) | `10.0.2.15` | `/24` | Internet (apt-get) |
 | **Salle** | Routeur MR100 | `LAN` | `192.168.10.1` | `/24` | Passerelle par défaut |
-| **Salle** | Réseau Staff | `VLAN 10` | `192.168.10.0` | `/24` | Postes fixes et terminaux staff |
-| **Salle** | Réseau Invités | `VLAN 20` | `192.168.20.0` | `/24` | Accès Internet visiteurs (Isolé) |
+| **Salle** | Clients Staff | `WiFi` | `192.168.10.101-254` | `/24` | DHCP - Fitness-Pro |
+| **Salle** | Clients Guests | `WiFi` | `192.168.10.101-254` | `/24` | DHCP - Fitness-Guest |
 
-## 4. Chaîne d’authentification EAP (PEAP-MSCHAPv2)
+**Note importante** : Les deux SSIDs partagent le même subnet (192.168.10.0/24). L'isolation des invités est assurée par l'**AP Isolation** au niveau du routeur, qui empêche les clients Fitness-Guest de communiquer entre eux.
+
+## 4. Chaîne d'authentification EAP (PEAP-MSCHAPv2)
 
 L'authentification assure que les identifiants ne circulent jamais en clair.
 
-### Diagramme de Séquence (Mermaid)
+### Flux d'authentification
 
-```mermaid
-sequenceDiagram
-    participant Client as Terminal (Wi-Fi)
-    participant AP as TP-Link MR100
-    participant Radius as FreeRADIUS
-    participant DB as MariaDB (SQL)
+```
+1. Client WiFi → Routeur (192.168.10.1)
+   - Requête EAPOL-Start
+   - Identity: alice@gym.fr
 
-    Note over Client, AP: 1. Connexion WPA2-Enterprise
-    Client->>AP: EAPOL-Start
-    AP->>Client: EAP-Request / Identity
-    Client->>AP: EAP-Response / Identity (anonymous)
-    AP->>Radius: RADIUS Access-Request (User-Name)
+2. Routeur → Serveur RADIUS (192.168.10.100:1812)
+   - RADIUS Access-Request
+   - Paquet UDP chiffré avec secret partagé
 
-    Note over Client, Radius: 2. Tunnel TLS (PEAP)
-    Radius->>AP: EAP-Request / PEAP-Start
-    AP->>Client: EAP-Request / PEAP-Start
-    Client->>Radius: Client Hello (TLS)
-    Radius->>Client: Server Hello + Certificate
-    Client->>Client: Valide Certificat
-    Client->>Radius: Client Key Exchange
-    Note right of Client: Tunnel TLS Établi 🔒
+3. FreeRADIUS → MySQL (127.0.0.1:3306)
+   - SELECT * FROM radcheck WHERE username='alice@gym.fr'
+   - Vérification hash mot de passe
 
-    Note over Client, Radius: 3. Auth dans le Tunnel
-    Radius->>Client: EAP-Request / Identity (Inner)
-    Client->>Radius: EAP-Response / Identity (login)
-    Radius->>Client: EAP-Request / MSCHAPv2 Challenge
-    Client->>Radius: EAP-Response / MSCHAPv2 Response (Hash)
+4. FreeRADIUS → Routeur
+   - RADIUS Access-Accept (avec clés WPA)
+   - OU Access-Reject
 
-    Note over Radius, DB: 4. Vérification
-    Radius->>DB: SELECT pass FROM radcheck WHERE user='login'
-    DB-->>Radius: Retourne Password (Cleartext/NT)
-    Radius->>Radius: Vérifie Hash vs Password
-
-    Note over Client, Radius: 5. Résultat
-    alt Authentification OK
-        Radius->>AP: RADIUS Access-Accept + Clés MPPE
-        AP->>Client: EAP-Success + Clés WPA
-        Note right of Client: Connecté (Internet OK)
-    else Authentification KO
-        Radius->>AP: RADIUS Access-Reject
-        AP->>Client: EAP-Failure
-        Note right of Client: Déconnecté
-    end
+5. Routeur → Client
+   - EAP-Success + attribution IP DHCP
+   - Client connecté au réseau
 ```
 
 ## 5. Analyse du routeur TL-MR100
 
-- **Fonctionnalités invité / isolation :**
-    - Isolation de niveau 2 (Client Isolation) activée par défaut sur le SSID Invité.
-    - Option "Allow Guest to access my Local Network" désactivée impérativement.
-    - Empêche l'accès au LAN (192.168.10.x) et au serveur central.
-- **Limites et contraintes :**
-    - Syslog en UDP non chiffré (risque d'interception).
-    - Pas de VLAN Tagging flexible sur les ports Ethernet (difficile de séparer le trafic filaire).
-    - Pare-feu basique (pas de règles DPI ou stateful avancées).
-- **Impacts sur l’architecture :**
-    - Nécessite un durcissement fort du serveur central (UFW) pour compenser la faiblesse du routeur.
-    - L'isolation doit être validée par des tests d'intrusion (nmap) réguliers.
+### Fonctionnalités d'isolation
 
-## 6. Architecture multi-sites
+- **AP Isolation (Client Isolation) :**
+  - Activée sur le SSID Fitness-Guest
+  - Empêche la communication de niveau 2 entre clients WiFi
+  - Les clients Guest ne peuvent pas se voir mutuellement
+  - Les clients Guest peuvent accéder au routeur (192.168.10.1) et Internet
+
+### Limites et contraintes
+
+- **Pas de VLAN Tagging** : Le routeur TL-MR100 ne supporte pas les VLANs 802.1Q
+- **Même subnet** : Les deux SSIDs partagent 192.168.10.0/24
+- **Syslog non chiffré** : Logs transmis en clair UDP (risque d'interception)
+- **Pare-feu basique** : Pas de règles DPI ou stateful avancées
+
+### Impacts sur l'architecture
+
+- **Sécurité par isolation WiFi** : L'AP Isolation remplace la séparation VLAN
+- **Durcissement serveur critique** : UFW doit compenser la faiblesse du routeur
+- **Tests réguliers** : Validation périodique de l'isolation avec nmap/tcpdump
+
+## 6. Architecture multi-sites (perspective future)
 
 - **Identification des sites :** Utilisation du fichier `clients.conf` pour déclarer chaque routeur comme un client NAS unique (`client site_bordeaux { ipaddr=... secret=... }`).
 - **Adressage unique :** Chaque futur site devra utiliser un sous-réseau LAN différent (ex: Site 2 en 192.168.11.0/24) pour éviter les conflits de routage VPN.
@@ -138,13 +142,71 @@ sequenceDiagram
 
 ## 7. Choix de sécurité
 
+### Authentification
+
 - **PEAP-MSCHAPv2 :** Choisi pour sa compatibilité native avec Windows/Android/iOS sans nécessiter de déploiement de certificats clients (PKI lourde).
-- **Segmentation VLAN :** Isolation stricte des flux Invités vs Entreprise.
-- **SSH par clé (Hardening) :** Suppression des mots de passe pour l'administration serveur.
-- **Wazuh :** Pour aller au-delà du simple log et détecter les attaques actives (brute force).
+- **Certificat serveur auto-signé :** Avertissement de sécurité sur les postes clients à la première connexion (acceptable pour environnement de test).
+
+### Isolation
+
+- **AP Isolation** : Remplacement de la séparation VLAN traditionnelle
+- **Avantages** :
+  - Simple à configurer
+  - Pas besoin de switch managé
+  - Efficace pour petits déploiements
+- **Inconvénients** :
+  - Moins robuste qu'une séparation VLAN
+  - Dépend du routeur
+  - Même subnet pour tous
+
+### Durcissement
+
+- **SSH par clé uniquement** : Suppression des mots de passe pour l'administration serveur
+- **UFW restrictif** : Seulement les ports essentiels ouverts
+- **MySQL local** : Accessible uniquement via 127.0.0.1 (pas d'exposition réseau)
+- **Wazuh** : Détection d'intrusion et alertes en temps réel
 
 ## 8. Points de vigilance et limitations
 
-- **Certificat Auto-signé :** Avertissement de sécurité sur les postes clients à la première connexion.
-- **Logs non chiffrés :** Le Syslog UDP transite en clair sur le réseau local.
-- **Disponibilité :** Dépendance forte au serveur central (SPOF). Si le lien WAN coupe, plus d'auth Wi-Fi Entreprise.
+### Sécurité
+
+- **Certificat Auto-signé :** Avertissement de sécurité sur les postes clients à la première connexion
+- **Logs non chiffrés :** Le Syslog UDP transite en clair sur le réseau local
+- **Secret RADIUS partagé :** Doit être changé en production (utiliser `openssl rand -hex 32`)
+
+### Architecture
+
+- **Pas de VLAN** : Séparation assurée uniquement par AP Isolation
+- **Même subnet** : Clients Staff et Guest sur 192.168.10.0/24
+- **SPOF (Single Point of Failure)** : Si le serveur RADIUS tombe, plus d'authentification Fitness-Pro
+- **Dépendance Internet** : Si le lien WAN coupe, l'accès Fitness-Guest peut être impacté
+
+### Tests critiques à réaliser
+
+1. **AP Isolation** : Vérifier qu'un client Guest ne peut pas ping un autre client Guest
+2. **Accès routeur** : Vérifier que les clients peuvent accéder à 192.168.10.1 (gateway)
+3. **Authétection RADIUS** : Tester avec radtest + clients WiFi réels
+4. **Logs Wazuh** : Vérifier la réception des authentifications
+
+## 9. Améliorations futures
+
+### Court terme
+
+- Installer un certificat Let's Encrypt pour HTTPS (PHP-Admin)
+- Implémenter rotation automatique des logs
+- Ajouter monitoring Nagios/Prometheus
+
+### Long terme
+
+- Migrer vers switch managé avec VLAN 802.1Q
+- Déployer une PKI interne pour certificats clients
+- Implémenter authentification multi-facteurs (TOTP)
+- Clustering FreeRADIUS pour haute disponibilité
+
+## 10. Conformité et normes
+
+- **ANSSI** : Application du guide de durcissement Linux
+- **802.1X** : Standard IEEE pour authentification réseau
+- **RADIUS** : RFC 2865, 2866 (Authentification et Accounting)
+- **PEAP** : RFC 5281 (Protected EAP)
+- **RGPD** : Logs d'authentification conservés selon durée légale
