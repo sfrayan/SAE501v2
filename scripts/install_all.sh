@@ -8,6 +8,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# IP STATIQUE DU SERVEUR RADIUS
+SERVER_IP="192.168.10.100"
+
 echo "╔════════════════════════════════════════════════════╗"
 echo "║                                                    ║"
 echo "║     SAE 5.01 - Installation Complète              ║"
@@ -24,14 +27,28 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Afficher informations système
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📋 Informations système"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "OS: $(lsb_release -d | cut -f2-)"
 echo "RAM: $(free -h | awk '/^Mem:/ {print $2}')"
 echo "Disque: $(df -h / | awk 'NR==2 {print $4}') disponible"
-echo "IP: $(hostname -I | awk '{print $1}')"
+echo "IP configurée: $SERVER_IP (statique)"
+echo "IP détectée: $(hostname -I | awk '{print $1}')"
 echo ""
+
+# Vérifier que l'IP configurée existe
+if ! ip addr show | grep -q "$SERVER_IP"; then
+  echo "⚠️  ATTENTION: L'IP $SERVER_IP n'est pas configurée sur cette machine"
+  echo "IP(s) détectée(s): $(hostname -I)"
+  echo ""
+  read -p "Continuer quand même? (o/N) " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[OoYy]$ ]]; then
+    echo "Installation annulée"
+    exit 0
+  fi
+fi
 
 # Confirmation
 read -p "Continuer l'installation? (o/N) " -n 1 -r
@@ -46,9 +63,9 @@ START_TIME=$(date +%s)
 
 # Phase 1: FreeRADIUS
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📍 PHASE 1/4 : Installation FreeRADIUS"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 if bash "$SCRIPT_DIR/install_radius.sh"; then
   echo "✅ FreeRADIUS installé"
 else
@@ -58,9 +75,9 @@ fi
 
 # Phase 2: PHP-Admin
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📍 PHASE 2/4 : Installation PHP-Admin"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 if bash "$SCRIPT_DIR/install_php_admin.sh"; then
   echo "✅ PHP-Admin installé"
 else
@@ -70,9 +87,9 @@ fi
 
 # Phase 3: Wazuh
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📍 PHASE 3/4 : Installation Wazuh"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 if bash "$SCRIPT_DIR/install_wazuh.sh"; then
   echo "✅ Wazuh installé"
 else
@@ -81,9 +98,9 @@ fi
 
 # Phase 4: Diagnostic
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📍 PHASE 4/4 : Diagnostic système"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 if [ -f "$SCRIPT_DIR/diagnostics.sh" ]; then
   bash "$SCRIPT_DIR/diagnostics.sh"
 else
@@ -95,9 +112,6 @@ END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 MINUTES=$((DURATION / 60))
 SECONDS=$((DURATION % 60))
-
-# Obtenir IP
-IP=$(hostname -I | awk '{print $1}')
 
 # Résumé final
 echo ""
@@ -117,9 +131,8 @@ echo "  ✅ Wazuh Manager (Supervision)"
 echo "  ✅ rsyslog (Collecte logs)"
 echo ""
 echo "🌐 Accès web:"
-echo "  PHP-Admin:  http://$IP/php-admin/"
-echo "  Wazuh:      https://$IP:443"
-echo "              User: admin / Pass: WazuhAdmin2026!"
+echo "  PHP-Admin:  http://$SERVER_IP/php-admin/"
+echo "  Wazuh Logs: sudo tail -f /var/ossec/logs/alerts/alerts.log"
 echo ""
 echo "🧪 Tests rapides:"
 echo "  radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123"
@@ -127,14 +140,14 @@ echo "  curl http://localhost/php-admin/list_users.php"
 echo "  systemctl status freeradius wazuh-manager apache2"
 echo ""
 echo "📚 Documentation:"
-echo "  cat /root/wazuh-credentials.txt"
+echo "  cat /root/wazuh-info.txt"
 echo "  README.md dans le dépôt"
 echo ""
 echo "🔧 Prochaines étapes:"
 echo "  1. Configurer le routeur TL-MR100 (voir README.md Phase 2)"
 echo "  2. Tester authentification Wi-Fi"
-echo "  3. Vérifier logs dans Wazuh Dashboard"
+echo "  3. Vérifier logs dans /var/ossec/logs/alerts/alerts.log"
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 exit 0
