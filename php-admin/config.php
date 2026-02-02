@@ -4,7 +4,8 @@
  *
  * Fichier: php-admin/config.php
  * Auteur: GroupeNani
- * Date: 4 janvier 2026
+ * Date: 2 février 2026
+ * Version: 2.1 - Architecture réelle
  *
  * Description:
  *   Configuration centralisée pour l'application de gestion des utilisateurs RADIUS.
@@ -24,7 +25,7 @@
 // CONFIGURATION BASE DE DONNÉES RADIUS
 // ============================================
 
-// Serveur MySQL
+// Serveur MySQL (local uniquement)
 define('DB_HOST', 'localhost');
 
 // Port MySQL (3306 par défaut)
@@ -50,10 +51,10 @@ define('DB_CHARSET', 'utf8mb4');
 define('APP_TITLE', 'SAE 5.01 - Gestionnaire Utilisateurs RADIUS');
 
 // Version
-define('APP_VERSION', '1.0');
+define('APP_VERSION', '2.1');
 
-// URL de base
-define('APP_BASE_URL', 'http://192.168.10.254/php-admin/');
+// URL de base (IP du serveur RADIUS)
+define('APP_BASE_URL', 'http://192.168.10.100/php-admin/');
 
 // Fuseau horaire
 define('TIMEZONE', 'Europe/Paris');
@@ -178,6 +179,13 @@ date_default_timezone_set(TIMEZONE);
 // ============================================
 
 /*
+ * ARCHITECTURE RÉSEAU:
+ *   Serveur VM Debian 11:
+ *     - eth0 (Bridge): 192.168.10.100 (Communication routeur + clients)
+ *     - eth1 (NAT): 10.0.2.15 (Internet pour apt-get)
+ *   Routeur TP-Link: 192.168.10.1
+ *   Réseau unique: 192.168.10.0/24 (pas de VLAN)
+ *
  * EN PRODUCTION:
  * 1. Utiliser variables d'environnement:
  *    define('DB_USER', getenv('DB_USER'));
