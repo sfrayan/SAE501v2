@@ -48,7 +48,7 @@
 ```
                     PC PORTABLE (Hôte)
                     ├─ WiFi (wlan0): Internet via Box
-                    └─ LAN (eth0): Vers routeur TP-Link
+                    └─ LAN (enp0s8): Vers routeur TP-Link
                              │
                              │ Câble RJ45
                              ▼
@@ -75,11 +75,11 @@
           │      VM DEBIAN 11 (Serveur)        │
           ├───────────────────────────────────┤
           │                                    │
-          │  eth0 (Bridge): 192.168.10.100   │
+          │  enp0s8 (Bridge): 192.168.10.100 │
           │  ├─ Gateway: 192.168.10.1          │
           │  └─ Communication avec routeur    │
           │                                    │
-          │  eth1 (NAT): 10.0.2.15           │
+          │  enp0s3 (NAT): 10.0.2.15          │
           │  ├─ Gateway: 10.0.2.2              │
           │  └─ Internet pour apt-get         │
           │                                    │
@@ -107,7 +107,7 @@ Client WiFi → Routeur (192.168.10.1) → VM (192.168.10.100:1812)
 
 ### VM Debian 11 : 2 interfaces réseau requises
 
-#### Interface eth0 (Bridge LAN)
+#### Interface enp0s8 (Bridge LAN)
 
 **Rôle** : Communication avec le routeur TP-Link et les clients WiFi
 
@@ -123,14 +123,14 @@ iface enp0s8 inet static
 
 **Hyperviseur** : Mode Bridge sur l'interface LAN du PC hôte
 
-#### Interface eth1 (NAT)
+#### Interface enp0s3 (NAT)
 
 **Rôle** : Accès Internet pour `apt-get`, `wget`, installations de paquets
 
 **Configuration** `/etc/network/interfaces` :
 ```bash
-auto eth1
-iface eth1 inet dhcp
+auto enp0s3
+iface enp0s3 inet dhcp
 ```
 
 **Hyperviseur** : Mode NAT (VirtualBox/VMware)
@@ -141,15 +141,15 @@ iface eth1 inet dhcp
 # Vérifier les interfaces
 ip addr show
 
-# eth0 doit avoir: 192.168.10.100
-# eth1 doit avoir: 10.0.2.15 (ou similaire)
+# enp0s8 doit avoir: 192.168.10.100
+# enp0s3 doit avoir: 10.0.2.15 (ou similaire)
 
 # Vérifier la connectivité routeur
 ping 192.168.10.1
 
 # Vérifier l'accès Internet
-ping -I eth1 8.8.8.8
-apt update    # Doit fonctionner via eth1
+ping -I enp0s3 8.8.8.8
+apt update    # Doit fonctionner via enp0s3
 ```
 
 ---
@@ -200,13 +200,15 @@ sudo bash scripts/install_php_admin.sh
 curl http://localhost/php-admin/list_users.php
 ```
 
-#### Étape 1.5 : Installer Wazuh (optionnel)
+#### Étape 1.5 : Installer Wazuh
 
 ```bash
 sudo bash scripts/install_wazuh.sh
 
 # Vérifier
-systemctl status wazuh-manager
+cd /opt/wazuh-docker/single-node
+docker compose ps
+cat /root/wazuh-info.txt
 ```
 
 #### Étape 1.6 : Diagnostic VM
@@ -251,7 +253,7 @@ DHCP Server: Activé
 Primary RADIUS Server:
   IP Address: 192.168.10.100
   Port: 1812
-  Shared Secret: Pj8K2qL9xR5wM3nP7dF4vB6tH1sQ9cZ2
+  Shared Secret: testing123
 ```
 
 #### Étape 2.4 : Configurer les SSID
@@ -351,10 +353,10 @@ ping <IP_autre_client_guest>
 
 ```bash
 # Sur la VM
-sudo grep -i "radius\|authentication" /var/ossec/logs/alerts/alerts.json
+cat /var/log/wazuh-export/alerts.json | head -20
 
-# Vérifier réception logs routeur
-sudo tail -f /var/log/syslog | grep "192.168.10.1"
+# Accéder à l'interface web
+http://192.168.10.100/php-admin/wazuh_logs.php
 ```
 
 ---
@@ -384,21 +386,12 @@ sudo systemctl restart ssh
 #### Firewall UFW
 
 ```bash
-# Activer UFW
-sudo ufw enable
-
-# Règles essentielles
-sudo ufw allow from 192.168.10.0/24 to any port 22 proto tcp   # SSH
-sudo ufw allow from 192.168.10.0/24 to any port 1812 proto udp # RADIUS
-sudo ufw allow from 192.168.10.0/24 to any port 514 proto udp  # Syslog
-sudo ufw allow from 192.168.10.0/24 to any port 80 proto tcp   # Web
-
-# Bloquer tout le reste
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-
-# Vérifier
+# UFW est installé automatiquement par le script Wazuh
+# Vérifier les règles
 sudo ufw status verbose
+
+# Ajouter des règles supplémentaires si nécessaire
+sudo ufw allow from 192.168.10.0/24 to any port 3306 proto tcp # MySQL (si accès distant)
 ```
 
 #### Permissions
@@ -421,15 +414,15 @@ sudo chmod 700 /var/lib/mysql
 ### Problème : VM ne peut pas joindre le routeur
 
 ```bash
-# Vérifier eth0
-ip addr show eth0
+# Vérifier enp0s8
+ip addr show enp0s8
 # Doit afficher: 192.168.10.100
 
-# Vérifier que eth0 est en mode Bridge dans l'hyperviseur
+# Vérifier que enp0s8 est en mode Bridge dans l'hyperviseur
 # VirtualBox: Réseau → Mode d'accès réseau: Pont
 
 # Redémarrer l'interface
-sudo ifdown eth0 && sudo ifup eth0
+sudo ifdown enp0s8 && sudo ifup enp0s8
 
 ping 192.168.10.1
 ```
@@ -437,14 +430,14 @@ ping 192.168.10.1
 ### Problème : apt-get ne fonctionne pas
 
 ```bash
-# Vérifier eth1 (NAT)
-ip addr show eth1
+# Vérifier enp0s3 (NAT)
+ip addr show enp0s3
 # Doit avoir une IP 10.0.2.x
 
-# Tester Internet via eth1
-ping -I eth1 8.8.8.8
+# Tester Internet via enp0s3
+ping -I enp0s3 8.8.8.8
 
-# Si ça ne fonctionne pas, vérifier que eth1 est en NAT dans l'hyperviseur
+# Si ça ne fonctionne pas, vérifier que enp0s3 est en NAT dans l'hyperviseur
 ```
 
 ### Problème : Clients WiFi ne s'authentifient pas
@@ -457,22 +450,27 @@ sudo freeradius -X
 
 # Vérifier le secret RADIUS
 grep "secret" /etc/freeradius/3.0/clients.conf
-# Doit correspondre à la config du routeur
+# Doit correspondre à la config du routeur (testing123)
 
 # Vérifier le firewall
 sudo ufw status | grep 1812
 ```
 
-### Problème : AP Isolation ne fonctionne pas
+### Problème : Logs Wazuh vides
 
 ```bash
-# Vérifier que l'AP Isolation est activée sur le routeur
-# Menu → Wireless → Guest Network → Enable AP Isolation
+# Vérifier que Wazuh fonctionne
+cd /opt/wazuh-docker/single-node
+docker compose ps
 
-# Tester depuis un client Guest
-arp -a  # Voir les autres clients
-ping <IP_autre_client>
-# Doit échouer (Request timeout)
+# Exécuter manuellement l'export
+sudo /usr/local/bin/export-wazuh-logs.sh
+
+# Vérifier le fichier
+cat /var/log/wazuh-export/alerts.json | head -10
+
+# Vérifier le cron
+crontab -l | grep export
 ```
 
 ---
@@ -480,11 +478,14 @@ ping <IP_autre_client>
 ## 📋 Checklist finale
 
 - [ ] **VM configurée**
-  - [ ] eth0 (Bridge): 192.168.10.100
-  - [ ] eth1 (NAT): Internet fonctionnel
+  - [ ] enp0s8 (Bridge): 192.168.10.100
+  - [ ] enp0s3 (NAT): Internet fonctionnel
   - [ ] FreeRADIUS actif et testé
   - [ ] MySQL opérationnel
   - [ ] PHP-Admin accessible
+  - [ ] Wazuh Docker UP
+  - [ ] UFW activé
+  - [ ] Cron export logs configuré
 
 - [ ] **Routeur configuré**
   - [ ] IP: 192.168.10.1
@@ -500,6 +501,7 @@ ping <IP_autre_client>
   - [ ] AP Isolation vérifiée
   - [ ] Logs RADIUS visibles
   - [ ] Wazuh reçoit les logs
+  - [ ] Interface web Wazuh accessible
 
 - [ ] **Sécurité appliquée**
   - [ ] SSH par clés uniquement
