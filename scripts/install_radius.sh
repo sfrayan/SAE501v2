@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# install_radius.sh - Installation complète FreeRADIUS + MySQL
-# VERSION AVEC GROUPES - 3 février 2026
+# install_radius.sh - Installation FreeRADIUS simple
+# VERSION ULTRA-SIMPLE SANS GROUPES - 3 février 2026
 #
 
 set -e
@@ -11,7 +11,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FR_CONF="/etc/freeradius/3.0"
 
 echo "──────────────────────────────────────"
-echo "🚀 Installation FreeRADIUS + MySQL (AVEC GROUPES)"
+echo "🚀 Installation FreeRADIUS (SANS GROUPES)"
 echo "──────────────────────────────────────"
 
 # Vérifier root
@@ -29,7 +29,6 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   freeradius-utils \
   mariadb-server \
   mariadb-client \
-  expect \
   > /dev/null 2>&1
 
 # 2. Démarrage MySQL
@@ -37,7 +36,7 @@ echo "[2/14] Configuration MySQL..."
 systemctl enable mariadb > /dev/null 2>&1
 systemctl start mariadb
 
-# 3. Sécurisation MySQL (automated)
+# 3. Sécurisation MySQL
 echo "[3/14] Sécurisation MySQL..."
 mysql -u root -e "
   DELETE FROM mysql.user WHERE User='';
@@ -56,11 +55,11 @@ else
   exit 1
 fi
 
-# 5. Création tables (VERSION AVEC GROUPES)
-echo "[5/14] Création des tables (VERSION AVEC GROUPES)..."
+# 5. Création tables (SANS GROUPES)
+echo "[5/14] Création des tables (SIMPLE - SANS GROUPES)..."
 if [ -f "$PROJECT_ROOT/radius/sql/create_tables.sql" ]; then
   mysql -u root radius < "$PROJECT_ROOT/radius/sql/create_tables.sql"
-  echo "  ✅ Tables de groupes créées: radusergroup, radgroupcheck, radgroupreply"
+  echo "  ✅ Tables créées: nas, radcheck, radreply, radacct, radpostauth"
 else
   echo "❌ Fichier create_tables.sql introuvable"
   exit 1
@@ -84,8 +83,8 @@ if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
   chown root:freerad "$FR_CONF/users"
 fi
 
-# 8. Configuration SQL module (AVEC GROUPES - VERSION COMPLÈTE)
-echo "[8/14] Configuration module SQL (AVEC GROUPES)..."
+# 8. Configuration SQL module (SANS GROUPES - CLÉ DE LA SOLUTION)
+echo "[8/14] Configuration module SQL (SANS GROUPES)..."
 cat > "$FR_CONF/mods-available/sql" <<'EOF'
 sql {
     driver = "rlm_sql_mysql"
@@ -98,24 +97,21 @@ sql {
     
     radius_db = "radius"
     
-    # Tables principales
+    # Tables utilisées (authentification simple)
     acct_table1 = "radacct"
     acct_table2 = "radacct"
     postauth_table = "radpostauth"
     authcheck_table = "radcheck"
     authreply_table = "radreply"
     
-    # ✅ TABLES DE GROUPES ACTIVÉES
-    groupcheck_table = "radgroupcheck"
-    groupreply_table = "radgroupreply"
-    usergroup_table = "radusergroup"
+    # ✅ CLÉ : DÉSACTIVER COMPLÈTEMENT LES GROUPES
+    read_groups = no
     
-    # ✅ ACTIVATION DE LA LECTURE DES GROUPES
-    read_groups = yes
-    
+    # Lecture des clients depuis MySQL
     read_clients = yes
     client_table = "nas"
     
+    # Pool de connexions
     pool {
         start = 5
         min = 4
@@ -126,8 +122,8 @@ sql {
         idle_timeout = 60
     }
     
-    # Inclusion des requêtes SQL
-    $INCLUDE ${modconfdir}/${.:name}/main/${dialect}/queries.conf
+    # ✅ NE PAS INCLURE queries.conf (contient les requêtes de groupes)
+    # Commentaire : On utilise les requêtes par défaut embarquées dans FreeRADIUS
 }
 EOF
 
@@ -137,14 +133,15 @@ chown root:freerad "$FR_CONF/mods-available/sql"
 # Activer module SQL
 ln -sf ../mods-available/sql "$FR_CONF/mods-enabled/sql" 2>/dev/null || true
 
-echo "  ✅ Module SQL configuré AVEC système de groupes"
+echo "  ✅ Module SQL configuré SANS système de groupes"
+echo "  ✅ read_groups = no (pas de warnings)"
 
-# 9. Configuration module LINELOG pour logging détaillé
-echo "[9/14] Configuration logging détaillé..."
+# 9. Configuration module LINELOG pour logging
+echo "[9/14] Configuration logging..."
 cat > "$FR_CONF/mods-available/linelog" <<'EOF'
 linelog {
     filename = "/var/log/freeradius/radius.log"
-    format = "%t [%{reply:Packet-Type}] user=%{User-Name} client=%{Packet-Src-IP-Address} nas=%{NAS-IP-Address} mac=%{Calling-Station-Id} result=%{Module-Failure-Message}"
+    format = "%t [%{reply:Packet-Type}] user=%{User-Name} nas=%{NAS-IP-Address} mac=%{Calling-Station-Id}"
     permissions = 0640
     reference = "messages.%{%{Packet-Type}:-default}"
 }
@@ -156,16 +153,16 @@ chown root:freerad "$FR_CONF/mods-available/linelog"
 # Activer module linelog
 ln -sf ../mods-available/linelog "$FR_CONF/mods-enabled/linelog" 2>/dev/null || true
 
-# Créer le fichier de log AVEC LES BONNES PERMISSIONS
+# Créer le fichier de log
 mkdir -p /var/log/freeradius
 touch /var/log/freeradius/radius.log
 chown freerad:freerad /var/log/freeradius/radius.log
 chmod 640 /var/log/freeradius/radius.log
 
-# Ajouter www-data au groupe freerad pour PHP
+# Ajouter www-data au groupe freerad
 if ! groups www-data 2>/dev/null | grep -q freerad; then
     usermod -a -G freerad www-data 2>/dev/null || true
-    echo "  ✅ Utilisateur www-data ajouté au groupe freerad"
+    echo "  ✅ www-data ajouté au groupe freerad"
 fi
 
 # 10. Configurer logrotate
@@ -185,34 +182,27 @@ cat > /etc/logrotate.d/freeradius <<'LOGROTATE'
 }
 LOGROTATE
 
-# 11. ACTIVER LINELOG DANS LES SITES
-echo "[11/14] Activation linelog dans sites..."
-
-# Ajouter linelog dans post-auth du site default (s'il n'y est pas)
+# 11. Activer linelog dans sites
+echo "[11/14] Activation linelog..."
 if ! grep -q "^[[:space:]]*linelog" "$FR_CONF/sites-available/default"; then
     sed -i '/^post-auth {$/a\        linelog' "$FR_CONF/sites-available/default"
 fi
 
-# Ajouter linelog dans post-auth du site inner-tunnel (s'il n'y est pas)
 if ! grep -q "^[[:space:]]*linelog" "$FR_CONF/sites-available/inner-tunnel"; then
     sed -i '/^post-auth {$/a\        linelog' "$FR_CONF/sites-available/inner-tunnel"
 fi
-
-echo "  ✅ Linelog activé dans les sites"
 
 # 12. Génération certificats TLS
 echo "[12/14] Génération certificats TLS..."
 cd "$FR_CONF/certs"
 
-# Configurer le certificat
 sed -i 's/default_days\s*=.*/default_days = 3650/' ca.cnf 2>/dev/null || true
 sed -i 's/countryName_default\s*=.*/countryName_default = FR/' ca.cnf 2>/dev/null || true
 sed -i 's/stateOrProvinceName_default\s*=.*/stateOrProvinceName_default = IDF/' ca.cnf 2>/dev/null || true
 sed -i 's/localityName_default\s*=.*/localityName_default = Paris/' ca.cnf 2>/dev/null || true
-sed -i 's/organizationName_default\s*=.*/organizationName_default = SAE501/' ca.cnf 2>/dev/null || true
 
 make > /dev/null 2>&1 || {
-  echo "⚠️  Génération certificats échouée, utilisation des certificats par défaut"
+  echo "⚠️  Génération certificats échouée, utilisation par défaut"
 }
 
 cd - > /dev/null
@@ -238,63 +228,53 @@ else
   exit 1
 fi
 
-# Démarrage service
+# 14. Démarrage service
 echo "──────────────────────────────────────"
-echo "[14/14] Démarrage services..."
+echo "[14/14] Démarrage FreeRADIUS..."
 systemctl enable freeradius > /dev/null 2>&1
 systemctl restart freeradius
 
-# Attendre démarrage
 sleep 3
 
 # Test authentification
 echo "──────────────────────────────────────"
 echo "🧪 Test authentification..."
 if radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123 2>&1 | grep -q "Access-Accept"; then
-  echo "✅ Test authentification réussi"
+  echo "✅ Test réussi"
   sleep 2
-  echo "📝 Dernières lignes du log:"
-  tail -3 /var/log/freeradius/radius.log 2>/dev/null | sed 's/^/  /' || echo "  (logs en cours de génération...)"
+  echo "📝 Logs:"
+  tail -3 /var/log/freeradius/radius.log 2>/dev/null | sed 's/^/  /' || echo "  (en cours...)"
 else
-  echo "⚠️  Test authentification échoué (vérifier logs)"
+  echo "⚠️  Test échoué"
 fi
 
-# Afficher status
 echo ""
 systemctl status freeradius --no-pager
 
 echo ""
 echo "──────────────────────────────────────"
-echo "✅ Installation FreeRADIUS terminée (VERSION AVEC GROUPES)"
+echo "✅ Installation terminée (VERSION ULTRA-SIMPLE)"
 echo ""
-echo "📋 CORRECTIONS APPLIQUÉES:"
-echo "  ✅ Système de groupes complètement activé"
-echo "  ✅ Tables radusergroup, radgroupcheck, radgroupreply créées"
-echo "  ✅ read_groups = yes activé dans module SQL"
-echo "  ✅ Fichier queries.conf inclus automatiquement"
-echo "  ✅ Fichier de log créé avec permissions correctes"
-echo "  ✅ Utilisateur www-data ajouté au groupe freerad"
-echo "  ✅ PLUS AUCUN WARNING sur group_membership_query"
+echo "📋 ARCHITECTURE:"
+echo "  ✅ Pas de groupes - tous les users ont les mêmes droits"
+echo "  ✅ Fitness-Pro = authentification RADIUS"
+echo "  ✅ Fitness-Guest = WPA2-PSK (pas RADIUS)"
+echo "  ✅ read_groups = no → AUCUN WARNING"
 echo ""
-echo "📝 Commandes utiles:"
+echo "📝 Commandes:"
 echo "  systemctl status freeradius"
-echo "  sudo freeradius -X                    # Mode debug"
+echo "  sudo freeradius -X"
 echo "  radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123"
 echo "  tail -f /var/log/freeradius/radius.log"
-echo "  mysql -u radius_app -pRadiusAppPass!2026 radius -e 'SELECT * FROM v_users_with_groups;'"
+echo "  mysql -u radius_app -pRadiusAppPass!2026 radius -e 'SELECT * FROM v_users_simple;'"
 echo ""
-echo "🔐 Identifiants MySQL:"
+echo "🔐 MySQL:"
 echo "  Base: radius"
 echo "  User: radius_app"
 echo "  Pass: RadiusAppPass!2026"
 echo ""
-echo "👥 Groupes configurés:"
-echo "  - staff (8h session, 30min idle)"
-echo "  - manager (12h session, 1h idle)"
-echo "  - guest (2h session, 15min idle)"
-echo ""
-echo "✅ Logging détaillé activé dans /var/log/freeradius/radius.log"
-echo "✅ Interface web peut maintenant afficher les logs"
+echo "✅ 5 utilisateurs créés avec les mêmes droits"
+echo "✅ Logs dans /var/log/freeradius/radius.log"
 echo "──────────────────────────────────────"
 
 exit 0
