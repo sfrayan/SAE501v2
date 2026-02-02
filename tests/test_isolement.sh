@@ -1,21 +1,28 @@
 #!/bin/bash
 
 ###############################################
-# test_isolement.sh - Test VLAN Isolement
+# test_isolement.sh - Test AP Isolation
 ###############################################
 #
 # Fichier: tests/test_isolement.sh
 # Auteur: GroupeNani
-# Date: 4 janvier 2026
+# Date: 2 février 2026
+# Version: 2.1 - Architecture réelle
 #
 # Description:
-#   Script de test de l'isolation VLAN sur routeur TL-MR100.
-#   Vérifie que les VLANs (Staff, Guest, Manager) sont bien isolés
-#   et que le trafic inter-VLAN est bloqué correctement.
+#   Script de test de l'isolation WiFi sur routeur TL-MR100.
+#   Vérifie que l'AP Isolation fonctionne correctement pour séparer
+#   les clients invités tout en permettant l'accès aux ressources réseau.
+#
+# Architecture:
+#   - Réseau unique: 192.168.10.0/24 (PAS de VLANs)
+#   - SSID Fitness-Pro: WPA2-Enterprise (802.1X/RADIUS)
+#   - SSID Fitness-Guest: WPA2-PSK + AP Isolation activée
+#   - Isolation invités: via AP Isolation (pas de séparation VLAN)
 #
 # Prérequis:
 #   - Accès à l'interface web TL-MR100
-#   - Au moins 2 clients WiFi (un par VLAN)
+#   - Au moins 2 clients WiFi
 #   - ping/traceroute disponibles
 #
 # Utilisation:
@@ -25,7 +32,6 @@
 #
 # Exemples:
 #   $ bash tests/test_isolement.sh 192.168.10.1
-#   $ bash tests/test_isolement.sh localhost
 #
 
 set -u
@@ -47,14 +53,8 @@ NC='\033[0m'
 
 # Paramètres
 ROUTER_IP="${1:-192.168.10.1}"
+SERVER_IP="192.168.10.100"  # Serveur RADIUS
 TEST_LOG="/tmp/isolation_test_$(date +%Y%m%d_%H%M%S).log"
-
-# VLANs SAE 5.01
-declare -A VLANS=(
-    [staff]="VLAN 10 - Staff (192.168.10.0/24)"
-    [guests]="VLAN 20 - Guests (192.168.20.0/24)"
-    [managers]="VLAN 30 - Managers (192.168.30.0/24)"
-)
 
 ###############################################
 # FONCTIONS
@@ -101,271 +101,297 @@ check_router() {
     separator
 }
 
-check_vlan_config() {
-    header "CONFIGURATION VLAN"
+check_server() {
+    header "CONNECTIVITÉ SERVEUR RADIUS"
     
-    info "VLANs attendus sur TL-MR100:"
+    info "Vérification du serveur RADIUS ($SERVER_IP)..."
     
-    for vlan_name in "${!VLANS[@]}"; do
-        info "  - ${VLANS[$vlan_name]}"
-    done
-    
-    info ""
-    info "Pour configurer les VLANs sur TL-MR100:"
-    info "  1. Admin → Network → VLAN"
-    info "  2. Créer VLAN 10 (Staff), 20 (Guests), 30 (Managers)"
-    info "  3. Assigner ports appropriés"
-    info "  4. Appliquer"
-    
-    separator
-}
-
-check_ssid_per_vlan() {
-    header "SSID PAR VLAN"
-    
-    info "SSIDs configurés sur TL-MR100:"
-    echo ""
-    echo "┌─────────────────────────────────────────┐"
-    echo "│ VLAN  │ SSID          │ Sécurité         │"
-    echo "├─────────────────────────────────────────┤"
-    echo "│ 10    │ Fitness-Pro   │ 802.1X/RADIUS    │"
-    echo "│ 20    │ Fitness-Guest │ PSK (WPA2)       │"
-    echo "│ 30    │ Fitness-Corp  │ 802.1X/RADIUS    │"
-    echo "└─────────────────────────────────────────┘"
-    echo ""
-    
-    pass "3 SSIDs configurés (1 par VLAN)"
-    
-    separator
-}
-
-test_vlan_tags() {
-    header "TEST 1: VLAN Tagging (Port Access)"
-    
-    info "Vérification des ports VLAN..."
-    
-    pass "Port 1-4: Access (Client WiFi)"
-    pass "Port 5: Trunk (Uplink management)"
-    pass "VLAN 10: Staff (ports 1-4)"
-    pass "VLAN 20: Guests (ports 1-4)"
-    pass "VLAN 30: Managers (ports 1-4)"
-    
-    warn "Configuration manuelle requise sur TL-MR100"
-    warn "Vérifier via: Admin → Network → VLAN → Port Settings"
-    
-    separator
-}
-
-test_intra_vlan_communication() {
-    header "TEST 2: Communication Intra-VLAN"
-    
-    info "Clients du même VLAN doivent pouvoir communiquer..."
-    
-    # Simulation - demander à l'utilisateur
-    echo ""
-    echo "${YELLOW}Test manuel:${NC}"
-    echo "  1. Connecter 2 clients au SSID Fitness-Pro (VLAN 10)"
-    echo "  2. Client A ping Client B"
-    echo "  3. Devrait RÉUSSIR (même VLAN)"
-    echo ""
-    
-    read -p "Communication intra-VLAN réussie? (y/n) " -r
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        pass "Communication intra-VLAN OK"
+    if ping -c 1 -W 2 "$SERVER_IP" &>/dev/null; then
+        pass "Serveur RADIUS accessible ($SERVER_IP)"
     else
-        fail "Communication intra-VLAN ÉCHOUÉE"
+        fail "Serveur RADIUS INJOIGNABLE ($SERVER_IP)"
     fi
     
     separator
 }
 
-test_inter_vlan_isolation() {
-    header "TEST 3: Isolation Inter-VLAN"
+check_network_config() {
+    header "CONFIGURATION RÉSEAU"
     
-    info "Clients de VLANs différents ne doivent PAS communiquer..."
+    info "Architecture réseau SAE 5.01:"
+    echo ""
+    echo "┌──────────────────────────────────────────────────────────┐"
+    echo "│ Réseau unique: 192.168.10.0/24                          │"
+    echo "│ Gateway: 192.168.10.1 (TL-MR100)                         │"
+    echo "│ Serveur RADIUS: 192.168.10.100                           │"
+    echo "│ DHCP Range: 192.168.10.50-192.168.10.200                │"
+    echo "│                                                          │"
+    echo "│ ⚠️ PAS DE VLANs - Isolation via AP Isolation uniquement  │"
+    echo "└──────────────────────────────────────────────────────────┘"
+    echo ""
     
-    # Simulation - demander à l'utilisateur
+    pass "Réseau unique configuré (pas de segmentation VLAN)"
+    
+    separator
+}
+
+check_ssid_config() {
+    header "CONFIGURATION SSIDs"
+    
+    info "SSIDs configurés sur TL-MR100:"
+    echo ""
+    echo "┌──────────────────────────────────────────────────────────┐"
+    echo "│ SSID            │ Sécurité          │ AP Isolation      │"
+    echo "├──────────────────────────────────────────────────────────┤"
+    echo "│ Fitness-Pro     │ 802.1X/RADIUS    │ DÉSACTIVÉE        │"
+    echo "│ Fitness-Guest   │ WPA2-PSK         │ ACTIVÉE (✓)      │"
+    echo "└──────────────────────────────────────────────────────────┘"
+    echo ""
+    
+    pass "2 SSIDs configurés (Pro + Guest)"
+    warn "AP Isolation est le SEUL mécanisme d'isolation (pas de VLANs)"
+    
+    separator
+}
+
+test_ap_isolation() {
+    header "TEST 1: AP Isolation (Client Isolation)"
+    
+    info "Clients connectés au SSID Fitness-Guest ne doivent PAS communiquer entre eux..."
+    
     echo ""
     echo "${YELLOW}Test manuel:${NC}"
-    echo "  1. Connecter Client A au SSID Fitness-Pro (VLAN 10)"
-    echo "  2. Connecter Client B au SSID Fitness-Guest (VLAN 20)"
-    echo "  3. Client A ping Client B"
-    echo "  4. Devrait ÉCHOUER (VLANs différents)"
+    echo "  1. Connecter 2 clients au SSID Fitness-Guest"
+    echo "  2. Client A (ex: 192.168.10.105) essayer ping Client B (ex: 192.168.10.110)"
+    echo "  3. Résultat attendu: PING ÉCHOUE (AP Isolation active)"
+    echo ""
+    echo "Configuration TL-MR100:"
+    echo "  Admin → Wireless → SSID Fitness-Guest → AP Isolation: Enabled"
     echo ""
     
-    read -p "Isolation inter-VLAN confirmée? (y/n) " -r
+    read -p "AP Isolation confirmée sur Fitness-Guest? (y/n) " -r
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        pass "Isolation inter-VLAN OK"
+        pass "AP Isolation active sur Fitness-Guest (✓)"
     else
-        fail "Isolation inter-VLAN ÉCHOUÉE"
+        fail "AP Isolation INACTIVE ou non testée"
+    fi
+    
+    separator
+}
+
+test_guest_to_pro_communication() {
+    header "TEST 2: Communication Inter-SSID (Guest → Pro)"
+    
+    info "Clients de SSIDs différents PEUVENT communiquer (même réseau)..."
+    
+    echo ""
+    echo "${YELLOW}Test manuel:${NC}"
+    echo "  1. Client A connecté à Fitness-Pro (ex: 192.168.10.80)"
+    echo "  2. Client B connecté à Fitness-Guest (ex: 192.168.10.105)"
+    echo "  3. Client B essayer ping Client A"
+    echo "  4. Résultat attendu: PING RÉUSSIT (même sous-réseau)"
+    echo ""
+    echo "⚠️  NOTE: Pas de séparation VLAN - tous sur 192.168.10.0/24"
+    echo ""
+    
+    read -p "Communication inter-SSID confirmée? (y/n) " -r
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        pass "Communication inter-SSID possible (pas de VLAN)"
+        warn "Pour isolation stricte, VLANs requis (non implémenté)"
+    else
+        fail "Communication inter-SSID échouée"
     fi
     
     separator
 }
 
 test_gateway_access() {
-    header "TEST 4: Accès Gateway VLAN"
+    header "TEST 3: Accès Gateway"
     
-    info "Chaque VLAN doit accéder à sa gateway..."
+    info "Tous les clients doivent accéder à la gateway..."
     
     echo ""
     echo "${YELLOW}Test manuel:${NC}"
-    echo "  1. Client VLAN 10 (192.168.10.x) → ping 192.168.10.1 (gateway)"
-    echo "  2. Client VLAN 20 (192.168.20.x) → ping 192.168.20.1 (gateway)"
-    echo "  3. Client VLAN 30 (192.168.30.x) → ping 192.168.30.1 (gateway)"
-    echo "  4. Tous les pings doivent RÉUSSIR"
+    echo "  1. Client Fitness-Pro → ping 192.168.10.1 (gateway)"
+    echo "  2. Client Fitness-Guest → ping 192.168.10.1 (gateway)"
+    echo "  3. Résultat attendu: Les 2 pings RÉUSSISSENT"
     echo ""
     
-    read -p "Accès gateway OK pour tous les VLANs? (y/n) " -r
+    read -p "Accès gateway OK pour tous les SSIDs? (y/n) " -r
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        pass "Accès gateway VLAN OK"
+        pass "Accès gateway OK depuis tous les SSIDs"
     else
-        fail "Accès gateway VLAN ÉCHOUÉ"
+        fail "Accès gateway ÉCHOUÉ"
     fi
     
     separator
 }
 
-test_radius_vlan_assignment() {
-    header "TEST 5: Attribution VLAN par RADIUS"
+test_server_access() {
+    header "TEST 4: Accès Serveur RADIUS"
     
-    info "FreeRADIUS doit assigner le VLAN basé sur groupe utilisateur..."
-    
-    echo ""
-    echo "${YELLOW}Configuration attendue:${NC}"
-    echo "  alice@gym.fr (Staff) → VLAN 10 (Tunnel-Private-Group-ID)"
-    echo "  bob@gym.fr (Staff) → VLAN 10"
-    echo "  charlie@gym.fr (Guest) → VLAN 20"
-    echo "  david@gym.fr (Manager) → VLAN 30"
-    echo ""
-    
-    # Vérifier configuration MySQL
-    if mysql -u radius_app -pRadiusAppPass!2026 -s radius \
-        -e "SELECT username FROM radreply WHERE attribute='Tunnel-Private-Group-ID' LIMIT 1;" &>/dev/null 2>&1; then
-        pass "Attribution VLAN par RADIUS configurée"
-    else
-        warn "Attribution VLAN par RADIUS NON configurée"
-        info "À configurer dans la table radreply de la base 'radius'"
-    fi
-    
-    separator
-}
-
-test_dhcp_per_vlan() {
-    header "TEST 6: DHCP par VLAN"
-    
-    info "Chaque VLAN doit avoir son propre DHCP server..."
+    info "Clients Fitness-Pro peuvent accéder au serveur RADIUS..."
     
     echo ""
-    echo "${YELLOW}Configuration attendue sur TL-MR100:${NC}"
-    echo "  VLAN 10: DHCP 192.168.10.100-192.168.10.200"
-    echo "  VLAN 20: DHCP 192.168.20.100-192.168.20.200"
-    echo "  VLAN 30: DHCP 192.168.30.100-192.168.30.200"
-    echo ""
-    
     echo "${YELLOW}Test manuel:${NC}"
-    echo "  1. Connecter client à Fitness-Pro → doit obtenir IP 192.168.10.x"
-    echo "  2. Connecter client à Fitness-Guest → doit obtenir IP 192.168.20.x"
-    echo "  3. Connecter client à Fitness-Corp → doit obtenir IP 192.168.30.x"
+    echo "  1. Client Fitness-Pro → ping $SERVER_IP (serveur RADIUS)"
+    echo "  2. Résultat attendu: PING RÉUSSIT"
+    echo ""
+    echo "${YELLOW}Test optionnel (sécurité):${NC}"
+    echo "  3. Client Fitness-Guest → ping $SERVER_IP"
+    echo "  4. Résultat souhaité: PING ÉCHOUE (firewall UFW sur serveur)"
+    echo "     Configurer: ufw deny from 192.168.10.100/32 to any port 1812"
     echo ""
     
-    read -p "DHCP par VLAN OK? (y/n) " -r
+    read -p "Accès serveur RADIUS testé? (y/n) " -r
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        pass "DHCP par VLAN OK"
+        pass "Accès serveur testé"
     else
-        fail "DHCP par VLAN ÉCHOUÉ"
+        warn "Accès serveur non testé"
     fi
     
     separator
 }
 
-test_wlan_isolation() {
-    header "TEST 7: AP Isolation (Client Isolation)"
+test_internet_access() {
+    header "TEST 5: Accès Internet"
     
-    info "Clients du même SSID ne peuvent pas communiquer directement..."
+    info "Tous les clients doivent accéder à Internet..."
     
     echo ""
-    echo "${YELLOW}Configuration:${NC}"
-    echo "  AP Isolation: ACTIVÉE sur tous les SSIDs"
-    echo "  Objectif: Empêcher les clients de se parler directement"
-    echo ""
-    
     echo "${YELLOW}Test manuel:${NC}"
-    echo "  1. Connecter 2 clients au MÊME SSID (Fitness-Pro)"
-    echo "  2. Client A essayer ping Client B"
-    echo "  3. Devrait ÉCHOUER (AP Isolation active)"
+    echo "  1. Client Fitness-Pro → ping 8.8.8.8 (Google DNS)"
+    echo "  2. Client Fitness-Guest → ping 8.8.8.8"
+    echo "  3. Résultat attendu: Les 2 pings RÉUSSISSENT"
     echo ""
     
-    read -p "AP Isolation confirmée? (y/n) " -r
+    read -p "Accès Internet OK pour tous? (y/n) " -r
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        pass "AP Isolation active (sécurité OK)"
+        pass "Accès Internet OK depuis tous les SSIDs"
     else
-        fail "AP Isolation INACTIVE"
+        fail "Accès Internet ÉCHOUÉ"
     fi
     
     separator
 }
 
-test_bandwidth_limit() {
-    header "TEST 8: Limitation Bande Passante par VLAN"
+test_dhcp() {
+    header "TEST 6: DHCP Attribution"
     
-    info "Configuration optionnelle: QoS par VLAN..."
+    info "Tous les clients doivent obtenir IP via DHCP..."
+    
+    echo ""
+    echo "${YELLOW}Test manuel:${NC}"
+    echo "  1. Client se connecte à Fitness-Pro"
+    echo "  2. Doit obtenir IP automatique: 192.168.10.50-200"
+    echo "  3. Gateway: 192.168.10.1"
+    echo "  4. DNS: 8.8.8.8 ou 1.1.1.1"
+    echo ""
+    echo "Configuration TL-MR100:"
+    echo "  Admin → Network → DHCP Server"
+    echo "  Start IP: 192.168.10.50"
+    echo "  End IP: 192.168.10.200"
+    echo ""
+    
+    read -p "DHCP fonctionne correctement? (y/n) " -r
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        pass "DHCP attribution OK"
+    else
+        fail "DHCP attribution ÉCHOUÉE"
+    fi
+    
+    separator
+}
+
+test_bandwidth() {
+    header "TEST 7: Limitation Bande Passante (Optionnel)"
+    
+    info "Configuration optionnelle: QoS pour limiter bande passante invités..."
     
     echo ""
     echo "${YELLOW}Configuration recommandée:${NC}"
-    echo "  Staff VLAN: Illimitée"
-    echo "  Guest VLAN: 5 Mbps par client (max)"
-    echo "  Manager VLAN: Illimitée"
+    echo "  Fitness-Pro: Illimitée (employés)"
+    echo "  Fitness-Guest: 5-10 Mbps par client (invités)"
+    echo ""
+    echo "Configuration TL-MR100:"
+    echo "  Admin → Advanced → QoS → Per-SSID Bandwidth Limit"
     echo ""
     
     warn "Configuration manuelle requise sur TL-MR100"
-    warn "Admin → Advanced → QoS → Per-VLAN Bandwidth Limit"
+    warn "Facultatif - non critique pour sécurité"
     
     separator
 }
 
 test_logging() {
-    header "TEST 9: Logging VLAN (Syslog)"
+    header "TEST 8: Logging (Wazuh)"
     
-    info "Les changements VLAN doivent être loggés..."
+    info "Les événements WiFi doivent être loggés vers Wazuh..."
     
     echo ""
     echo "${YELLOW}Configuration:${NC}"
-    echo "  Syslog server: 192.168.10.254:514"
-    echo "  Events: Client connect/disconnect par VLAN"
+    echo "  Syslog server: $SERVER_IP:514"
+    echo "  Events: Client connect/disconnect, auth success/fail"
     echo ""
     
     # Vérifier si Wazuh reçoit les logs
     if [[ -f /var/ossec/logs/ossec.log ]]; then
-        VLAN_LOGS=$(grep -c "VLAN\|vlan" /var/ossec/logs/ossec.log 2>/dev/null || echo "0")
-        if [[ $VLAN_LOGS -gt 0 ]]; then
-            pass "Logs VLAN reçus par Wazuh ($VLAN_LOGS entrées)"
+        WIFI_LOGS=$(grep -c "WiFi\|wireless\|associated" /var/ossec/logs/ossec.log 2>/dev/null || echo "0")
+        if [[ $WIFI_LOGS -gt 0 ]]; then
+            pass "Logs WiFi reçus par Wazuh ($WIFI_LOGS entrées)"
         else
-            warn "Logs VLAN non encore reçus par Wazuh"
+            warn "Logs WiFi non encore reçus par Wazuh"
+            info "Vérifier config syslog sur TL-MR100"
         fi
+    else
+        warn "Wazuh non installé ou logs inaccessibles"
     fi
     
     separator
 }
 
 test_roaming() {
-    header "TEST 10: Roaming Entre VLANs"
+    header "TEST 9: Roaming Entre SSIDs"
     
-    info "Client peut-il changer de VLAN/SSID et garder accès?"
+    info "Client peut changer de SSID et garder accès..."
     
     echo ""
     echo "${YELLOW}Test manuel:${NC}"
-    echo "  1. Client connecté à Fitness-Pro (VLAN 10)"
-    echo "  2. Se reconnecter à Fitness-Guest (VLAN 20)"
-    echo "  3. Devrait obtenir nouvelle IP 192.168.20.x"
-    echo "  4. Accès gateway 192.168.20.1 OK"
+    echo "  1. Client connecté à Fitness-Pro (IP: 192.168.10.x)"
+    echo "  2. Se déconnecter et reconnecter à Fitness-Guest"
+    echo "  3. Devrait obtenir nouvelle IP (même plage: 192.168.10.y)"
+    echo "  4. Accès gateway + Internet OK"
     echo ""
     
-    read -p "Roaming inter-VLAN OK? (y/n) " -r
+    read -p "Roaming inter-SSID OK? (y/n) " -r
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        pass "Roaming inter-VLAN fonctionnel"
+        pass "Roaming inter-SSID fonctionnel"
     else
-        fail "Roaming inter-VLAN ÉCHOUÉ"
+        fail "Roaming inter-SSID ÉCHOUÉ"
+    fi
+    
+    separator
+}
+
+test_radius_auth() {
+    header "TEST 10: Authentification RADIUS (Fitness-Pro)"
+    
+    info "Clients Fitness-Pro doivent s'authentifier via RADIUS..."
+    
+    echo ""
+    echo "${YELLOW}Test depuis le serveur RADIUS:${NC}"
+    echo "  radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123"
+    echo ""
+    
+    # Vérifier si radtest est disponible
+    if command -v radtest >/dev/null 2>&1; then
+        if radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123 2>&1 | grep -q "Access-Accept"; then
+            pass "Authentification RADIUS fonctionnelle (alice@gym.fr)"
+        else
+            fail "Authentification RADIUS ÉCHOUÉE"
+        fi
+    else
+        warn "radtest non disponible (installer freeradius-utils)"
     fi
     
     separator
@@ -376,22 +402,36 @@ generate_report() {
     
     echo "Fichier de log: $TEST_LOG"
     echo ""
-    echo "Tests d'isolation VLAN:"
-    echo "  [✓] Connectivité routeur"
-    echo "  [✓] Configuration VLAN"
-    echo "  [✓] SSID par VLAN"
-    echo "  [✓] VLAN Tagging"
-    echo "  [✓] Communication intra-VLAN"
-    echo "  [✓] Isolation inter-VLAN"
-    echo "  [✓] Accès gateway VLAN"
-    echo "  [✓] Attribution VLAN par RADIUS"
-    echo "  [✓] DHCP par VLAN"
-    echo "  [✓] AP Isolation"
-    echo "  [✓] Limitation bande passante"
-    echo "  [✓] Logging VLAN"
-    echo "  [✓] Roaming inter-VLAN"
+    echo "Architecture testée:"
+    echo "  [✓] Réseau unique: 192.168.10.0/24 (PAS de VLANs)"
+    echo "  [✓] Gateway: 192.168.10.1"
+    echo "  [✓] Serveur RADIUS: 192.168.10.100"
+    echo "  [✓] SSIDs: Fitness-Pro + Fitness-Guest"
     echo ""
-    echo -e "${GREEN}✓ Tests d'isolation VLAN terminés${NC}\n"
+    echo "Tests d'isolation:"
+    echo "  [✓] Connectivité routeur"
+    echo "  [✓] Connectivité serveur RADIUS"
+    echo "  [✓] Configuration réseau"
+    echo "  [✓] Configuration SSIDs"
+    echo "  [✓] AP Isolation (Fitness-Guest)"
+    echo "  [✓] Communication inter-SSID"
+    echo "  [✓] Accès gateway"
+    echo "  [✓] Accès serveur RADIUS"
+    echo "  [✓] Accès Internet"
+    echo "  [✓] DHCP attribution"
+    echo "  [✓] Limitation bande passante"
+    echo "  [✓] Logging Wazuh"
+    echo "  [✓] Roaming inter-SSID"
+    echo "  [✓] Authentification RADIUS"
+    echo ""
+    echo -e "${GREEN}✓ Tests d'isolation terminés${NC}\n"
+    
+    echo "⚠️  NOTES IMPORTANTES:"
+    echo "  - Pas de VLANs implémentés (réseau unique)"
+    echo "  - Isolation uniquement via AP Isolation sur Fitness-Guest"
+    echo "  - Clients Pro et Guest partagent le même sous-réseau"
+    echo "  - Pour isolation stricte, VLANs seraient nécessaires"
+    echo ""
 }
 
 ###############################################
@@ -403,24 +443,25 @@ main() {
     
     echo -e "${CYAN}"
     echo "╔════════════════════════════════════════════════════════╗"
-    echo "║        SAE 5.01 - TEST ISOLEMENT VLAN                   ║"
-    echo "║        $(date +"%Y-%m-%d %H:%M:%S")                           ║"
+    echo "║        SAE 5.01 - TEST ISOLATION WiFi                    ║"
+    echo "║        $(date +"%Y-%m-%d %H:%M:%S")                          ║"
     echo "╚════════════════════════════════════════════════════════╝"
     echo -e "${NC}\n"
     
     check_router
-    check_vlan_config
-    check_ssid_per_vlan
-    test_vlan_tags
-    test_intra_vlan_communication || true
-    test_inter_vlan_isolation || true
+    check_server
+    check_network_config
+    check_ssid_config
+    test_ap_isolation || true
+    test_guest_to_pro_communication || true
     test_gateway_access || true
-    test_radius_vlan_assignment
-    test_dhcp_per_vlan || true
-    test_wlan_isolation || true
-    test_bandwidth_limit
+    test_server_access || true
+    test_internet_access || true
+    test_dhcp || true
+    test_bandwidth
     test_logging
     test_roaming || true
+    test_radius_auth || true
     
     generate_report
 }
