@@ -15,7 +15,7 @@ echo ""
 
 # Install Docker if needed
 if ! command -v docker &> /dev/null; then
-  echo "[1/5] Installation Docker..."
+  echo "[1/7] Installation Docker..."
   
   # Detect OS
   . /etc/os-release
@@ -51,28 +51,41 @@ if ! command -v docker &> /dev/null; then
   systemctl enable --now docker > /dev/null 2>&1
   echo "✅ Docker installé"
 else
-  echo "[1/5] Docker OK"
+  echo "[1/7] Docker OK"
+fi
+
+# Install UFW
+echo "[2/7] Installation UFW..."
+if ! command -v ufw &> /dev/null; then
+  apt-get update -qq
+  apt-get install -y ufw > /dev/null 2>&1
+  echo "✅ UFW installé"
+else
+  echo "✅ UFW déjà installé"
 fi
 
 # System config
-echo "[2/5] Configuration système..."
+echo "[3/7] Configuration système..."
 grep -q "vm.max_map_count=262144" /etc/sysctl.conf || echo "vm.max_map_count=262144" >> /etc/sysctl.conf
 sysctl -w vm.max_map_count=262144 > /dev/null
 
 # Clone Wazuh
-echo "[3/5] Téléchargement Wazuh..."
+echo "[4/7] Téléchargement Wazuh..."
 rm -rf "$WAZUH_DIR"
 git clone https://github.com/wazuh/wazuh-docker.git -b v4.14.2 --single-branch "$WAZUH_DIR" > /dev/null 2>&1
 cd "$WAZUH_DIR/single-node"
 
 # Generate certs
-echo "[4/5] Génération certificats..."
+echo "[5/7] Génération certificats..."
 docker compose -f generate-indexer-certs.yml run --rm generator > /dev/null 2>&1
 
 # Deploy
-echo "[5/5] Démarrage Wazuh (2-3 min)..."
+echo "[6/7] Démarrage Wazuh (2-3 min)..."
 docker compose up -d
-sleep 30
+
+# Wait for Wazuh to be ready
+echo "Attente du démarrage complet..."
+sleep 45
 
 # Get credentials
 ADMIN_USER=$(grep "INDEXER_USERNAME" docker-compose.yml | cut -d':' -f2 | tr -d ' "' | head -1)
@@ -82,24 +95,45 @@ ADMIN_PASS=$(grep "INDEXER_PASSWORD" docker-compose.yml | cut -d':' -f2 | tr -d 
 mkdir -p /var/log/wazuh-export
 chmod 755 /var/log/wazuh-export
 
-# Setup log export cron
+# Setup log export script
 cat > /usr/local/bin/export-wazuh-logs.sh <<'SCRIPT'
 #!/bin/bash
 LOG_FILE="/var/log/wazuh-export/alerts.json"
-docker exec single-node-wazuh.manager-1 tail -n 1000 /var/ossec/logs/alerts/alerts.json > "$LOG_FILE" 2>/dev/null || echo '[]' > "$LOG_FILE"
+
+# Ensure container is running
+if ! docker exec single-node-wazuh.manager-1 echo "test" > /dev/null 2>&1; then
+  echo "[]" > "$LOG_FILE"
+  chmod 644 "$LOG_FILE"
+  exit 0
+fi
+
+# Export logs
+docker exec single-node-wazuh.manager-1 tail -n 1000 /var/ossec/logs/alerts/alerts.json > "$LOG_FILE" 2>/dev/null || echo "[]" > "$LOG_FILE"
 chmod 644 "$LOG_FILE"
 SCRIPT
 
 chmod +x /usr/local/bin/export-wazuh-logs.sh
+
+# Setup cron job
+echo "[7/7] Configuration cron export..."
 (crontab -l 2>/dev/null | grep -v export-wazuh-logs; echo "*/2 * * * * /usr/local/bin/export-wazuh-logs.sh") | crontab -
+echo "✅ Cron configuré : */2 * * * * /usr/local/bin/export-wazuh-logs.sh"
+
+# Initial log export
 /usr/local/bin/export-wazuh-logs.sh
 
-# UFW rules
-if command -v ufw &> /dev/null; then
-  ufw allow 443/tcp comment 'Wazuh Dashboard' > /dev/null 2>&1
-  ufw allow 1514/tcp comment 'Wazuh Agent' > /dev/null 2>&1
-  ufw allow 514/udp comment 'Syslog' > /dev/null 2>&1
-fi
+# Configure UFW rules
+echo "Configuration UFW..."
+ufw --force enable > /dev/null 2>&1
+ufw allow 443/tcp comment 'Wazuh Dashboard' > /dev/null 2>&1
+ufw allow 1514/tcp comment 'Wazuh Agent Registration' > /dev/null 2>&1
+ufw allow 1515/tcp comment 'Wazuh Agent Communication' > /dev/null 2>&1
+ufw allow 514/udp comment 'Syslog' > /dev/null 2>&1
+ufw allow 1812/udp comment 'RADIUS Auth' > /dev/null 2>&1
+ufw allow 1813/udp comment 'RADIUS Accounting' > /dev/null 2>&1
+ufw allow 80/tcp comment 'HTTP PHP Admin' > /dev/null 2>&1
+ufw allow 22/tcp comment 'SSH' > /dev/null 2>&1
+echo "✅ UFW configuré"
 
 # Save info
 cat > /root/wazuh-info.txt <<EOF
@@ -126,15 +160,23 @@ Fichier: /var/log/wazuh-export/alerts.json
 MàJ:     Toutes les 2 minutes (cron)
 Web:     http://$SERVER_IP/php-admin/wazuh_logs.php
 
+Vérifier export:
+sudo /usr/local/bin/export-wazuh-logs.sh
+cat /var/log/wazuh-export/alerts.json | head -5
+
 🔧 DEBUG
 docker exec single-node-wazuh.manager-1 tail -f /var/ossec/logs/ossec.log
+docker exec single-node-wazuh.manager-1 cat /var/ossec/logs/alerts/alerts.json | tail -10
+
+🔥 FIREWALL UFW
+sudo ufw status numbered
 EOF
 
 chmod 600 /root/wazuh-info.txt
 
 echo ""
 echo "──────────────────────────────────────"
-echo "✅ Wazuh Manager installé"
+echo "✅ Installation complète !"
 echo "──────────────────────────────────────"
 echo ""
 echo "Dashboard: https://$SERVER_IP:443"
@@ -142,5 +184,12 @@ echo "User:      $ADMIN_USER"
 echo "Pass:      $ADMIN_PASS"
 echo "Logs Web:  http://$SERVER_IP/php-admin/wazuh_logs.php"
 echo ""
-echo "📖 Détails: cat /root/wazuh-info.txt"
+echo "✅ UFW activé et configuré"
+echo "✅ Cron export logs actif (toutes les 2 min)"
+echo ""
+echo "Vérifier cron: crontab -l"
+echo "Vérifier UFW:  sudo ufw status"
+echo "Vérifier logs: cat /var/log/wazuh-export/alerts.json"
+echo ""
+echo "📖 Infos complètes: cat /root/wazuh-info.txt"
 echo ""
