@@ -5,11 +5,40 @@
 ```
 radius/
 ├── clients.conf           # Config clients NAS (Routeurs)
-├── users                  # Utilisateurs de test (format FreeRADIUS)
+├── users.txt              # Utilisateurs de test (format FreeRADIUS)
 └── sql/
     ├── init_appuser.sql   # Création utilisateur MySQL
     └── create_tables.sql  # Schéma base de données RADIUS
 ```
+
+## 💻 Architecture Réseau
+
+```
+PC Portable (Hôte)
+├─ WiFi (wlan0): Internet via Box
+└─ LAN (eth0): 192.168.10.x → Routeur TP-Link
+         │
+         ▼
+Routeur TP-Link TL-MR100
+  IP: 192.168.10.1
+  ├─ SSID: Fitness-Pro (WPA2-Enterprise)
+  └─ SSID: Fitness-Guest (WPA2-PSK + AP Isolation)
+         │
+         ▼
+VM Debian 11 (Serveur RADIUS)
+  ├─ eth0 (Bridge): 192.168.10.100
+  │  └─ Gateway: 192.168.10.1
+  │  └─ Communication avec routeur
+  │
+  └─ eth1 (NAT): 10.0.2.15
+     └─ Gateway: 10.0.2.2
+     └─ Internet pour apt-get
+```
+
+**Réseau unique**: 192.168.10.0/24 (pas de VLAN)
+**Isolation invités**: AP Isolation au niveau routeur
+
+---
 
 ## 📄 Fichiers
 
@@ -27,10 +56,14 @@ Configuration des clients RADIUS autorisés (Routeurs/NAS).
 sudo cp radius/clients.conf /etc/freeradius/3.0/
 
 # 2. Configurer le routeur avec le MÊME secret
-# Interface web TL-MR100 → Config RADIUS → Secret = Pj8K2qL9xR5wM3nP7dF4vB6tH1sQ9cZ2
+# Interface web TL-MR100 → RADIUS Settings
+# IP: 192.168.10.100
+# Port: 1812
+# Secret: Pj8K2qL9xR5wM3nP7dF4vB6tH1sQ9cZ2
 
 # 3. Vérifier les permissions
 sudo chmod 640 /etc/freeradius/3.0/clients.conf
+sudo chown root:freerad /etc/freeradius/3.0/clients.conf
 ```
 
 **Sécurité:**
@@ -40,7 +73,7 @@ sudo chmod 640 /etc/freeradius/3.0/clients.conf
 
 ---
 
-### `users`
+### `users.txt`
 Fichier FreeRADIUS contenant les utilisateurs de test.
 
 **Format:**
@@ -61,24 +94,17 @@ username Cleartext-Password := "password"
 **À faire:**
 ```bash
 # 1. Copier vers FreeRADIUS
-sudo cp radius/users /etc/freeradius/3.0/
+sudo cp radius/users.txt /etc/freeradius/3.0/users
 
 # 2. Permissions
 sudo chmod 640 /etc/freeradius/3.0/users
+sudo chown root:freerad /etc/freeradius/3.0/users
 ```
 
 **Note Important:**
 - ⚠️ En production, utiliser la base MySQL (`sql/create_tables.sql`)
 - Cleartext-Password = mots de passe en CLAIR (tests seulement)
 - Production = Stocker MD5 hash
-
-**Format FreeRADIUS:**
-```
-:=  = Remplacer (défaut)
-=   = Ajouter
-==  = Comparer (condition)
-!=  = Non égal
-```
 
 ---
 
@@ -94,14 +120,6 @@ Script de création de l'utilisateur MySQL pour FreeRADIUS.
 **À exécuter AVANT `create_tables.sql`:**
 ```bash
 sudo mysql -u root -p < radius/sql/init_appuser.sql
-```
-
-**Commandes SQL incluses:**
-```sql
-CREATE USER 'radius_app'@'localhost' IDENTIFIED BY 'RadiusAppPass!2026';
-CREATE DATABASE radius CHARACTER SET utf8mb4;
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, INDEX, ALTER ON radius.* TO 'radius_app'@'localhost';
-FLUSH PRIVILEGES;
 ```
 
 **Vérification:**
@@ -130,28 +148,15 @@ Schéma complet de la base de données RADIUS.
 | **radaudit** | Audit des changements (INSERT/UPDATE/DELETE) |
 
 **Données initiales:**
-- ✅ 5 groupes: staff, guests, managers
+- ✅ 3 groupes: staff, guests, managers
 - ✅ 5 utilisateurs: alice, bob, charlie, david, emma
 - ✅ Associations groupe-utilisateurs
-- ✅ 3 vues SQL utiles
+- ✅ 2 vues SQL utiles
 - ✅ 3 triggers audit automatiques
 
 **À exécuter APRÈS `init_appuser.sql`:**
 ```bash
 sudo mysql -u root -p radius < radius/sql/create_tables.sql
-```
-
-**Vues incluses:**
-```sql
-v_users_with_groups  -- Utilisateurs + groupes + attributs
-v_active_sessions    -- Sessions Wi-Fi actives
-```
-
-**Triggers inclus:**
-```sql
-tr_radcheck_insert   -- Audit INSERT
-tr_radcheck_update   -- Audit UPDATE
-tr_radcheck_delete   -- Audit DELETE
 ```
 
 ---
@@ -205,7 +210,7 @@ sudo chown root:freerad /etc/freeradius/3.0/clients.conf
 
 ```bash
 # Copier users
-sudo cp radius/users /etc/freeradius/3.0/
+sudo cp radius/users.txt /etc/freeradius/3.0/users
 sudo chmod 640 /etc/freeradius/3.0/users
 sudo chown root:freerad /etc/freeradius/3.0/users
 ```
@@ -220,7 +225,7 @@ sudo chown -R root:freerad /etc/freeradius/3.0/
 sudo chmod -R 750 /etc/freeradius/3.0/
 
 # Vérifier la configuration
-sudo radiusd -XC
+sudo freeradius -XC
 
 # Redémarrer le service
 sudo systemctl restart freeradius
@@ -235,7 +240,7 @@ sudo systemctl status freeradius
 
 ```bash
 # Test avec utilisateur alice@gym.fr
-sudo radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123
+radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123
 ```
 
 ✅ Résultat attendu:
@@ -316,9 +321,9 @@ tail -f /var/log/freeradius/radius.log
 
 Ou test complet:
 ```bash
-sudo radiusd -X
+sudo freeradius -X
 # Puis dans autre terminal:
-sudo radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123
+radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123
 ```
 
 ---
@@ -326,11 +331,12 @@ sudo radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123
 ## 🔐 Sécurité - Checklist
 
 - [ ] Secret clients.conf (`Pj8K2qL9xR5wM3nP7dF4vB6tH1sQ9cZ2`) identique dans TL-MR100
+- [ ] Routeur configuré: IP serveur 192.168.10.100, port 1812
 - [ ] Permissions 640 sur clients.conf et users
 - [ ] Utilisateur MySQL `radius_app` créé avec password fort
 - [ ] Base de données `radius` créée
 - [ ] 8 tables créées avec succès
-- [ ] Données initiales (5 users + 6 groupes) chargées
+- [ ] Données initiales (5 users + 3 groupes) chargées
 - [ ] Port 1812-1813 UDP ouvert dans UFW
 - [ ] Certificats générés (`/etc/freeradius/3.0/certs/`)
 - [ ] Module SQL activé dans FreeRADIUS
@@ -358,14 +364,16 @@ radgroupreply (réponses groupe)
 
 **Exemple flux:**
 ```
-1. Client: alice@gym.fr / Alice@123!
-2. Cherche dans radcheck: Username=alice@gym.fr
-3. Vérifie password dans radcheck: OK
-4. Cherche radusergroup: alice@gym.fr → staff
-5. Cherche radgroupcheck: staff → attributs
-6. Cherche radreply: alice@gym.fr → attributs
-7. Cherche radgroupreply: staff → attributs
-8. Combine tout et retourne Access-Accept + attributs
+1. Client WiFi: alice@gym.fr / Alice@123!
+2. Routeur (192.168.10.1) → Serveur RADIUS (192.168.10.100:1812)
+3. Cherche dans radcheck: Username=alice@gym.fr
+4. Vérifie password dans radcheck: OK
+5. Cherche radusergroup: alice@gym.fr → staff
+6. Cherche radgroupcheck: staff → attributs
+7. Cherche radreply: alice@gym.fr → attributs
+8. Cherche radgroupreply: staff → attributs
+9. Combine tout et retourne Access-Accept + attributs
+10. Client connecté au réseau 192.168.10.0/24
 ```
 
 ---
@@ -374,14 +382,14 @@ radgroupreply (réponses groupe)
 
 | Problème | Cause Probable | Solution |
 | :--- | :--- | :--- |
-| **Unknown NAS** | Client pas dans clients.conf | Ajouter IP routeur dans clients.conf |
-| **Bad authenticator** | Secret différent | Vérifier secret identique partout |
-| **No reply received** | Firewall bloque 1812/1813 | `ufw allow 1812/udp 1813/udp` |
+| **Unknown NAS** | Client pas dans clients.conf | Vérifier IP 192.168.10.1 dans clients.conf |
+| **Bad authenticator** | Secret différent | Vérifier secret identique (routeur + serveur) |
+| **No reply received** | Firewall bloque 1812/1813 | `sudo ufw allow 1812/udp` |
 | **Access-Reject** | Utilisateur pas en DB ou password faux | Vérifier dans radcheck table |
-| **TLS error** | Certificats corrompus | `cd /etc/freeradius/3.0/certs && sudo make clean && sudo make` |
+| **TLS error** | Certificats corrompus | `cd /etc/freeradius/3.0/certs && sudo make` |
 | **Connection refused** | FreeRADIUS pas démarré | `sudo systemctl start freeradius` |
 | **Query failed** | Base données inexistante | Exécuter init_appuser.sql puis create_tables.sql |
-| **Permission denied** | Permissions fichiers incorrectes | `sudo chmod 640` sur fichiers sensibles |
+| **Can't reach server** | Interface Bridge mal configurée | Vérifier eth0 = 192.168.10.100, ping 192.168.10.1 |
 
 ---
 
@@ -449,15 +457,23 @@ Operators:
 
 ---
 
-## 📞 Support
+## 📦 Configuration Routeur TP-Link
 
-- **Projet**: SAE 5.01 - Architecture Wi-Fi Sécurisée
-- **Équipe**: GroupeNani (Alice, Bob, Charlie)
-- **Deadline**: 19 janvier 2026
-- **Contact**: groupenani@sae501.fr
+**Menu** → **Wireless** → **RADIUS Settings**
+
+```
+Primary RADIUS Server:
+  IP Address: 192.168.10.100
+  Port: 1812
+  Shared Secret: Pj8K2qL9xR5wM3nP7dF4vB6tH1sQ9cZ2
+
+SSID Configuration:
+  - Fitness-Pro: WPA2-Enterprise (RADIUS)
+  - Fitness-Guest: WPA2-PSK (AP Isolation activée)
+```
 
 ---
 
 **Créé par**: GroupeNani  
-**Date**: 4 janvier 2026  
-**Version**: 1.0
+**Date**: 2 février 2026  
+**Version**: 2.1 - Architecture réelle
