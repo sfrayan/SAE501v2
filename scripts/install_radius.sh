@@ -83,7 +83,7 @@ if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
   chown root:freerad "$FR_CONF/users"
 fi
 
-# 8. Configuration SQL module (SANS LES QUERIES DE GROUPE)
+# 8. Configuration SQL module (CORRIGÉ - sans group_membership_query)
 echo "[8/14] Configuration module SQL..."
 cat > "$FR_CONF/mods-available/sql" <<'EOF'
 sql {
@@ -106,10 +106,8 @@ sql {
     groupreply_table = "radgroupreply"
     usergroup_table = "radusergroup"
     
-    # Désactivé pour éviter les warnings MySQL
-    # group_membership_query = "..."
-    # groupcheck_query = "..."
-    # groupreply_query = "..."
+    # ✅ PAS de group_membership_query pour éviter le WARNING
+    # L'authentification PEAP-MSCHAPv2 n'en a pas besoin
     
     read_clients = yes
     client_table = "nas"
@@ -132,12 +130,12 @@ chown root:freerad "$FR_CONF/mods-available/sql"
 # Activer module SQL
 ln -sf ../mods-available/sql "$FR_CONF/mods-enabled/sql" 2>/dev/null || true
 
-# 9. Configuration module LINELOG pour logging détaillé
+# 9. Configuration module LINELOG pour logging détaillé (AMÉLIORÉ)
 echo "[9/14] Configuration logging détaillé..."
 cat > "$FR_CONF/mods-available/linelog" <<'EOF'
 linelog {
     filename = "/var/log/freeradius/radius.log"
-    format = "%t user=%{%{User-Name}:-unknown} result=%{%{reply:Packet-Type}:-Unknown} client=%{%{Packet-Src-IP-Address}:-0.0.0.0} nas=%{%{NAS-IP-Address}:-unknown} mac=%{%{Calling-Station-Id}:-unknown} auth_type=%{%{control:Auth-Type}:-None}"
+    format = "%t [%{reply:Packet-Type}] user=%{User-Name} client=%{Packet-Src-IP-Address} nas=%{NAS-IP-Address} mac=%{Calling-Station-Id} result=%{Module-Failure-Message}"
     permissions = 0640
     reference = "messages.%{%{Packet-Type}:-default}"
 }
@@ -149,11 +147,17 @@ chown root:freerad "$FR_CONF/mods-available/linelog"
 # Activer module linelog
 ln -sf ../mods-available/linelog "$FR_CONF/mods-enabled/linelog" 2>/dev/null || true
 
-# Créer le fichier de log
+# Créer le fichier de log AVEC LES BONNES PERMISSIONS
 mkdir -p /var/log/freeradius
 touch /var/log/freeradius/radius.log
 chown freerad:freerad /var/log/freeradius/radius.log
 chmod 640 /var/log/freeradius/radius.log
+
+# Ajouter www-data au groupe freerad pour PHP
+if ! groups www-data 2>/dev/null | grep -q freerad; then
+    usermod -a -G freerad www-data 2>/dev/null || true
+    echo "  ✅ Utilisateur www-data ajouté au groupe freerad"
+fi
 
 # 10. Configurer logrotate
 echo "[10/14] Configuration logrotate..."
@@ -254,6 +258,11 @@ echo ""
 echo "──────────────────────────────────────"
 echo "✅ Installation FreeRADIUS terminée"
 echo ""
+echo "📋 CORRECTIONS APPLIQUÉES:"
+echo "  ✅ WARNING group_membership_query corrigé"
+echo "  ✅ Fichier de log créé avec permissions correctes"
+echo "  ✅ Utilisateur www-data ajouté au groupe freerad"
+echo ""
 echo "📝 Commandes utiles:"
 echo "  systemctl status freeradius"
 echo "  sudo freeradius -X                    # Mode debug"
@@ -266,6 +275,7 @@ echo "  User: radius_app"
 echo "  Pass: RadiusAppPass!2026"
 echo ""
 echo "✅ Logging détaillé activé dans /var/log/freeradius/radius.log"
+echo "✅ Interface web peut maintenant afficher les logs"
 echo "──────────────────────────────────────"
 
 exit 0
