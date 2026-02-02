@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # install_radius.sh - Installation complète FreeRADIUS + MySQL
-# Version corrigée avec configuration SQL et EAP
+# Version corrigée avec configuration SQL, EAP et LOGGING DÉTAILLÉ
 #
 
 set -e
@@ -21,7 +21,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 1. Installation paquets
-echo "[1/11] Installation paquets..."
+echo "[1/13] Installation paquets..."
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   freeradius \
@@ -33,12 +33,12 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   > /dev/null 2>&1
 
 # 2. Démarrage MySQL
-echo "[2/11] Configuration MySQL..."
+echo "[2/13] Configuration MySQL..."
 systemctl enable mariadb > /dev/null 2>&1
 systemctl start mariadb
 
 # 3. Sécurisation MySQL (automated)
-echo "[3/11] Sécurisation MySQL..."
+echo "[3/13] Sécurisation MySQL..."
 mysql -u root -e "
   DELETE FROM mysql.user WHERE User='';
   DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
@@ -48,7 +48,7 @@ mysql -u root -e "
 " 2>/dev/null || true
 
 # 4. Création base et utilisateur
-echo "[4/11] Création base de données RADIUS..."
+echo "[4/13] Création base de données RADIUS..."
 if [ -f "$PROJECT_ROOT/radius/sql/init_appuser.sql" ]; then
   mysql -u root < "$PROJECT_ROOT/radius/sql/init_appuser.sql"
 else
@@ -57,7 +57,7 @@ else
 fi
 
 # 5. Création tables
-echo "[5/11] Création des tables..."
+echo "[5/13] Création des tables..."
 if [ -f "$PROJECT_ROOT/radius/sql/create_tables.sql" ]; then
   mysql -u root radius < "$PROJECT_ROOT/radius/sql/create_tables.sql"
 else
@@ -66,7 +66,7 @@ else
 fi
 
 # 6. Configuration FreeRADIUS - clients.conf
-echo "[6/11] Configuration clients RADIUS..."
+echo "[6/13] Configuration clients RADIUS..."
 if [ -f "$PROJECT_ROOT/radius/clients.conf" ]; then
   cp "$FR_CONF/clients.conf" "$FR_CONF/clients.conf.backup" 2>/dev/null || true
   cp "$PROJECT_ROOT/radius/clients.conf" "$FR_CONF/clients.conf"
@@ -75,7 +75,7 @@ if [ -f "$PROJECT_ROOT/radius/clients.conf" ]; then
 fi
 
 # 7. Configuration FreeRADIUS - users
-echo "[7/11] Configuration users..."
+echo "[7/13] Configuration users..."
 if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
   cp "$FR_CONF/users" "$FR_CONF/users.backup" 2>/dev/null || true
   cp "$PROJECT_ROOT/radius/users.txt" "$FR_CONF/users"
@@ -84,7 +84,7 @@ if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
 fi
 
 # 8. Configuration SQL module (SANS LES QUERIES DE GROUPE)
-echo "[8/11] Configuration module SQL..."
+echo "[8/13] Configuration module SQL..."
 cat > "$FR_CONF/mods-available/sql" <<'EOF'
 sql {
     driver = "rlm_sql_mysql"
@@ -132,8 +132,68 @@ chown root:freerad "$FR_CONF/mods-available/sql"
 # Activer module SQL
 ln -sf ../mods-available/sql "$FR_CONF/mods-enabled/sql" 2>/dev/null || true
 
-# 9. Génération certificats TLS
-echo "[9/11] Génération certificats TLS..."
+# 9. Configuration module LINELOG pour logging détaillé
+echo "[9/13] Configuration logging détaillé..."
+cat > "$FR_CONF/mods-available/linelog" <<'EOF'
+linelog {
+    filename = "/var/log/freeradius/radius.log"
+    
+    format = "%t user=%{%{User-Name}:-unknown} result=%{%{reply:Packet-Type}:-Unknown} client=%{%{Packet-Src-IP-Address}:-0.0.0.0} nas=%{%{NAS-IP-Address}:-unknown} mac=%{%{Calling-Station-Id}:-unknown} auth_type=%{%{control:Auth-Type}:-None}"
+    
+    permissions = 0640
+    
+    reference = "messages.%{%{Packet-Type}:-default}"
+}
+
+linelog auth_log {
+    filename = "/var/log/freeradius/radius.log"
+    
+    format = "%t [%{User-Name}] Auth-Type=%{%{control:Auth-Type}:-None} Result=%{%{reply:Packet-Type}:-Unknown} Client=%{%{Packet-Src-IP-Address}:-0.0.0.0} NAS=%{%{NAS-IP-Address}:-unknown} MAC=%{%{Calling-Station-Id}:-unknown}"
+    
+    permissions = 0640
+}
+EOF
+
+chmod 640 "$FR_CONF/mods-available/linelog"
+chown root:freerad "$FR_CONF/mods-available/linelog"
+
+# Activer module linelog
+ln -sf ../mods-available/linelog "$FR_CONF/mods-enabled/linelog" 2>/dev/null || true
+
+# Créer le fichier de log
+mkdir -p /var/log/freeradius
+touch /var/log/freeradius/radius.log
+chown freerad:freerad /var/log/freeradius/radius.log
+chmod 640 /var/log/freeradius/radius.log
+
+# 10. Configurer logrotate
+echo "[10/13] Configuration logrotate..."
+cat > /etc/logrotate.d/freeradius <<'LOGROTATE'
+/var/log/freeradius/radius.log {
+    daily
+    missingok
+    rotate 7
+    compress
+    delaycompress
+    notifempty
+    create 0640 freerad freerad
+    postrotate
+        systemctl reload freeradius > /dev/null 2>&1 || true
+    endscript
+}
+LOGROTATE
+
+# 11. Activer auth_log dans la configuration post-auth
+echo "[11/13] Configuration post-auth logging..."
+if ! grep -q "auth_log" "$FR_CONF/sites-available/default"; then
+    sed -i '/post-auth {/a\        auth_log' "$FR_CONF/sites-available/default"
+fi
+if ! grep -q "auth_log" "$FR_CONF/sites-available/inner-tunnel"; then
+    sed -i '/post-auth {/a\        auth_log' "$FR_CONF/sites-available/inner-tunnel"
+fi
+
+# 12. Génération certificats TLS
+echo "[12/13] Génération certificats TLS..."
 cd "$FR_CONF/certs"
 
 # Configurer le certificat
@@ -152,18 +212,8 @@ cd - > /dev/null
 # Activer module EAP
 ln -sf ../mods-available/eap "$FR_CONF/mods-enabled/eap" 2>/dev/null || true
 
-# 10. Suppression des warnings GROUP_MEMBERSHIP (FIX: modifier mods-available au lieu de mods-enabled)
-echo "[10/11] Suppression warnings MySQL..."
-if [ -f "$FR_CONF/mods-available/sql" ]; then
-    # IMPORTANT: Modifier le fichier source (mods-available), pas le lien symbolique (mods-enabled)
-    sed -i 's/^[[:space:]]*group_membership_query/#group_membership_query/g' "$FR_CONF/mods-available/sql"
-    sed -i 's/^[[:space:]]*groupcheck_query/#groupcheck_query/g' "$FR_CONF/mods-available/sql"
-    sed -i 's/^[[:space:]]*groupreply_query/#groupreply_query/g' "$FR_CONF/mods-available/sql"
-    echo "✅ Warnings GROUP_MEMBERSHIP supprimés"
-fi
-
-# 11. Permissions finales
-echo "[11/11] Configuration permissions..."
+# 13. Permissions finales
+echo "[13/13] Configuration permissions..."
 chown -R root:freerad "$FR_CONF"
 chmod -R 750 "$FR_CONF"
 chmod 640 "$FR_CONF/clients.conf"
@@ -194,6 +244,7 @@ echo "────────────────────────�
 echo "🧪 Test authentification..."
 if radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123 2>&1 | grep -q "Access-Accept"; then
   echo "✅ Test authentification réussi"
+  echo "📄 Vérifier logs: tail -f /var/log/freeradius/radius.log"
 else
   echo "⚠️  Test authentification échoué (vérifier logs)"
 fi
@@ -215,7 +266,7 @@ echo "  Base: radius"
 echo "  User: radius_app"
 echo "  Pass: RadiusAppPass!2026"
 echo ""
-echo "✅ Les warnings GROUP_MEMBERSHIP MySQL ont été désactivés"
+echo "✅ Logging détaillé activé dans /var/log/freeradius/radius.log"
 echo "──────────────────────────────────────"
 
 exit 0
