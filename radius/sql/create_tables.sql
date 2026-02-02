@@ -1,22 +1,20 @@
 --
--- create_tables.sql - Schéma COMPLET base de données RADIUS (AVEC GROUPES)
+-- create_tables.sql - Schéma ULTRA-SIMPLE base de données RADIUS
 --
--- Version: 3 février 2026 - VERSION AVEC GROUPES ACTIVÉS
--- Auteur: GroupeNani - Corrigé par Perplexity
+-- Version: 3 février 2026 - SANS GROUPES (VERSION FINALE)
+-- Auteur: GroupeNani - Optimisé par Perplexity
 --
 -- Description:
---   Crée un schéma complet pour FreeRADIUS avec MySQL.
---   AVEC système de groupes pour éliminer les warnings.
+--   Schéma minimaliste pour authentification simple.
+--   Tous les utilisateurs ont les MÊMES droits.
+--   Pas besoin de groupes.
 --
---   Tables activées:
---     - nas (clients RADIUS)
+--   Tables utilisées:
+--     - nas (clients RADIUS - routeur)
 --     - radcheck (authentification utilisateurs)
---     - radreply (réponses utilisateurs)
---     - radusergroup (appartenance aux groupes) ✅
---     - radgroupcheck (attributs de groupe) ✅
---     - radgroupreply (réponses de groupe) ✅
---     - radacct (accounting/sessions)
---     - radpostauth (logs post-auth)
+--     - radreply (réponses utilisateurs - optionnel)
+--     - radacct (comptabilité des sessions)
+--     - radpostauth (logs d'authentification)
 --
 -- Utilisation:
 --   $ sudo mysql -u root radius < radius/sql/create_tables.sql
@@ -25,7 +23,7 @@
 USE radius;
 
 -- ============================================
--- SUPPRIMER LES ANCIENNES TABLES
+-- SUPPRESSION TOTALE DES TABLES DE GROUPES
 -- ============================================
 
 DROP TABLE IF EXISTS radusergroup;
@@ -41,7 +39,7 @@ DROP VIEW IF EXISTS v_users_simple;
 DROP VIEW IF EXISTS v_active_sessions;
 
 -- ============================================
--- 0. TABLE: nas (CLIENTS RADIUS)
+-- 1. TABLE: nas (CLIENTS RADIUS)
 -- ============================================
 
 CREATE TABLE nas (
@@ -55,16 +53,15 @@ CREATE TABLE nas (
   community varchar(50) default NULL,
   description varchar(200) default 'RADIUS Client',
   PRIMARY KEY (id),
-  KEY nasname (nasname),
-  KEY shortname (shortname)
+  KEY nasname (nasname)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Insérer le routeur TL-MR100
+-- Routeur TP-Link
 INSERT INTO nas (nasname, shortname, type, secret, description) VALUES
   ('192.168.10.1', 'TL-MR100', 'other', 'testing123', 'Routeur TP-Link TL-MR100');
 
 -- ============================================
--- 1. TABLE: radcheck (AUTHENTIFICATION)
+-- 2. TABLE: radcheck (AUTHENTIFICATION)
 -- ============================================
 
 CREATE TABLE radcheck (
@@ -74,12 +71,11 @@ CREATE TABLE radcheck (
   op char(2) NOT NULL default ':=',
   value varchar(253) NOT NULL default '',
   PRIMARY KEY (id),
-  KEY username (username),
-  KEY attribute (attribute)
+  KEY username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
--- 2. TABLE: radreply (RÉPONSES)
+-- 3. TABLE: radreply (RÉPONSES - OPTIONNEL)
 -- ============================================
 
 CREATE TABLE radreply (
@@ -89,54 +85,11 @@ CREATE TABLE radreply (
   op char(2) NOT NULL default '=',
   value varchar(253) NOT NULL default '',
   PRIMARY KEY (id),
-  KEY username (username),
-  KEY attribute (attribute)
+  KEY username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
--- 3. TABLE: radgroupcheck (ATTRIBUTS GROUPE) ✅
--- ============================================
-
-CREATE TABLE radgroupcheck (
-  id int(11) unsigned NOT NULL auto_increment,
-  groupname varchar(64) NOT NULL default '',
-  attribute varchar(64) NOT NULL default '',
-  op char(2) NOT NULL default ':=',
-  value varchar(253) NOT NULL default '',
-  PRIMARY KEY (id),
-  KEY groupname (groupname)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- ============================================
--- 4. TABLE: radgroupreply (RÉPONSES GROUPE) ✅
--- ============================================
-
-CREATE TABLE radgroupreply (
-  id int(11) unsigned NOT NULL auto_increment,
-  groupname varchar(64) NOT NULL default '',
-  attribute varchar(64) NOT NULL default '',
-  op char(2) NOT NULL default '=',
-  value varchar(253) NOT NULL default '',
-  PRIMARY KEY (id),
-  KEY groupname (groupname)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- ============================================
--- 5. TABLE: radusergroup (APPARTENANCE) ✅
--- ============================================
-
-CREATE TABLE radusergroup (
-  id int(11) unsigned NOT NULL auto_increment,
-  username varchar(64) NOT NULL default '',
-  groupname varchar(64) NOT NULL default '',
-  priority int(11) NOT NULL default 0,
-  PRIMARY KEY (id),
-  KEY username (username),
-  KEY groupname (groupname)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- ============================================
--- 6. TABLE: radacct (ACCOUNTING/SESSIONS)
+-- 4. TABLE: radacct (COMPTABILITÉ SESSIONS)
 -- ============================================
 
 CREATE TABLE radacct (
@@ -162,22 +115,16 @@ CREATE TABLE radacct (
   servicetype varchar(32) default NULL,
   framedprotocol varchar(32) default NULL,
   framedipaddress varchar(15) NOT NULL default '',
-  framedipv6address varchar(45) default NULL,
-  framedipv6prefix varchar(45) default NULL,
-  framedinterfaceid varchar(44) default NULL,
-  delegatedipv6prefix varchar(45) default NULL,
   PRIMARY KEY (radacctid),
   UNIQUE KEY acctuniqueid (acctuniqueid),
   KEY username (username),
-  KEY framedipaddress (framedipaddress),
   KEY acctsessionid (acctsessionid),
   KEY acctstarttime (acctstarttime),
-  KEY acctstoptime (acctstoptime),
   KEY nasipaddress (nasipaddress)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
--- 7. TABLE: radpostauth (LOGS POST-AUTH)
+-- 5. TABLE: radpostauth (LOGS)
 -- ============================================
 
 CREATE TABLE radpostauth (
@@ -194,29 +141,10 @@ CREATE TABLE radpostauth (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
--- 8. DONNÉES INITIALES - GROUPES
+-- 6. UTILISATEURS (TOUS LES MÊMES DROITS)
 -- ============================================
 
--- Créer les groupes
-INSERT INTO radgroupcheck (groupname, attribute, op, value) VALUES
-  ('staff', 'Auth-Type', ':=', 'Accept'),
-  ('manager', 'Auth-Type', ':=', 'Accept'),
-  ('guest', 'Auth-Type', ':=', 'Accept');
-
--- Attributs de réponse par groupe
-INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES
-  ('staff', 'Session-Timeout', ':=', '28800'),
-  ('staff', 'Idle-Timeout', ':=', '1800'),
-  ('manager', 'Session-Timeout', ':=', '43200'),
-  ('manager', 'Idle-Timeout', ':=', '3600'),
-  ('guest', 'Session-Timeout', ':=', '7200'),
-  ('guest', 'Idle-Timeout', ':=', '900');
-
--- ============================================
--- 9. DONNÉES INITIALES - UTILISATEURS
--- ============================================
-
--- Insérer les utilisateurs
+-- Insérer les utilisateurs avec mot de passe
 INSERT INTO radcheck (username, attribute, op, value) VALUES
   ('alice@gym.fr', 'Cleartext-Password', ':=', 'Alice@123!'),
   ('bob@gym.fr', 'Cleartext-Password', ':=', 'Bob@456!'),
@@ -224,69 +152,52 @@ INSERT INTO radcheck (username, attribute, op, value) VALUES
   ('david@gym.fr', 'Cleartext-Password', ':=', 'David@2026!'),
   ('emma@gym.fr', 'Cleartext-Password', ':=', 'Emma@2026!');
 
--- Ajouter messages de réponse personnalisés
+-- Messages de bienvenue (optionnel)
 INSERT INTO radreply (username, attribute, op, value) VALUES
-  ('alice@gym.fr', 'Reply-Message', '=', 'Bienvenue Alice (Staff)'),
-  ('bob@gym.fr', 'Reply-Message', '=', 'Bienvenue Bob (Staff)'),
-  ('charlie@gym.fr', 'Reply-Message', '=', 'Bienvenue Charlie (Guest)'),
-  ('david@gym.fr', 'Reply-Message', '=', 'Bienvenue David (Manager)'),
-  ('emma@gym.fr', 'Reply-Message', '=', 'Bienvenue Emma (Staff)');
-
--- Associer utilisateurs aux groupes
-INSERT INTO radusergroup (username, groupname, priority) VALUES
-  ('alice@gym.fr', 'staff', 1),
-  ('bob@gym.fr', 'staff', 1),
-  ('charlie@gym.fr', 'guest', 1),
-  ('david@gym.fr', 'manager', 1),
-  ('emma@gym.fr', 'staff', 1);
+  ('alice@gym.fr', 'Reply-Message', '=', 'Bienvenue Alice'),
+  ('bob@gym.fr', 'Reply-Message', '=', 'Bienvenue Bob'),
+  ('charlie@gym.fr', 'Reply-Message', '=', 'Bienvenue Charlie'),
+  ('david@gym.fr', 'Reply-Message', '=', 'Bienvenue David'),
+  ('emma@gym.fr', 'Reply-Message', '=', 'Bienvenue Emma');
 
 -- ============================================
--- 10. VUES
+-- 7. VUE SIMPLE
 -- ============================================
 
--- Vue: Utilisateurs avec leurs groupes
-CREATE OR REPLACE VIEW v_users_with_groups AS
+CREATE OR REPLACE VIEW v_users_simple AS
 SELECT 
   rc.username,
-  rug.groupname,
   rc.value as password,
-  rr.value as reply_message
+  rr.value as message
 FROM radcheck rc
-LEFT JOIN radusergroup rug ON rc.username = rug.username
-LEFT JOIN radreply rr ON rc.username = rr.username
+LEFT JOIN radreply rr ON rc.username = rr.username AND rr.attribute = 'Reply-Message'
 WHERE rc.attribute = 'Cleartext-Password'
 ORDER BY rc.username;
 
--- Vue: Sessions actives
+-- Vue sessions actives
 CREATE OR REPLACE VIEW v_active_sessions AS
 SELECT
-  acctsessionid,
   username,
   nasipaddress,
   acctstarttime,
   framedipaddress,
-  calledstationid,
   callingstationid,
-  TIMESTAMPDIFF(SECOND, acctstarttime, NOW()) as session_duration_seconds
+  TIMESTAMPDIFF(SECOND, acctstarttime, NOW()) as duration_seconds
 FROM radacct
 WHERE acctstoptime IS NULL
 ORDER BY acctstarttime DESC;
 
 -- ============================================
--- NOTES
+-- TERMINÉ
 -- ============================================
-
--- ✅ VERSION COMPLÈTE AVEC GROUPES:
---   - Tables de groupes activées (radusergroup, radgroupcheck, radgroupreply)
---   - Authentification utilisateur + héritage attributs de groupe
---   - Plus de warnings "group_membership_query"
+-- Architecture:
+--   - Fitness-Pro (WPA2-Enterprise) → Authentification via radcheck
+--   - Fitness-Guest (WPA2-PSK) → Pas de RADIUS, mot de passe routeur
 --
--- Flux authentification avec groupes:
---   1. Client envoie identifiants
---   2. FreeRADIUS cherche dans radcheck (utilisateur)
---   3. Vérifie mot de passe
---   4. Cherche groupe dans radusergroup
---   5. Applique attributs du groupe (radgroupreply)
---   6. Applique attributs utilisateur (radreply)
---   7. Retourne Access-Accept avec tous les attributs
+-- Flux:
+--   1. Client WiFi → Routeur (192.168.10.1)
+--   2. Routeur → RADIUS (192.168.10.100:1812)
+--   3. RADIUS vérifie username/password dans radcheck
+--   4. Si OK → Access-Accept
+--   5. Tous les users ont les mêmes droits
 --
