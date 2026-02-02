@@ -11,6 +11,9 @@ apt-get install -y freeradius freeradius-mysql freeradius-utils >/dev/null 2>&1
 mysql -u root < "$PROJECT_ROOT/radius/sql/init_appuser.sql" >/dev/null 2>&1
 mysql -u root radius < "$PROJECT_ROOT/radius/sql/create_tables.sql" >/dev/null 2>&1
 
+rm -f "$FR_CONF/clients.conf" 2>/dev/null || true
+rm -f "$FR_CONF/users" 2>/dev/null || true
+
 cp "$PROJECT_ROOT/radius/clients.conf" "$FR_CONF/clients.conf"
 cp "$PROJECT_ROOT/radius/users.txt" "$FR_CONF/users"
 
