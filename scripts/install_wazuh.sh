@@ -40,8 +40,21 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+# Détection du système d'exploitation
+echo -e "${BLUE}[1/10]${NC} Détection du système..."
+
+if [ -f /etc/os-release ]; then
+  . /etc/os-release
+  OS_ID=$ID
+  OS_VERSION_CODENAME=$VERSION_CODENAME
+  echo "OS détecté: $NAME $VERSION"
+else
+  echo -e "${RED}❌ Impossible de détecter l'OS${NC}"
+  exit 1
+fi
+
 # Vérifier la configuration système minimale
-echo -e "${BLUE}[1/9]${NC} Vérification de la configuration système..."
+echo -e "${BLUE}[2/10]${NC} Vérification de la configuration système..."
 
 # Vérifier RAM (minimum 8GB recommandé)
 TOTAL_RAM=$(free -g | awk '/^Mem:/{print $2}')
@@ -62,7 +75,7 @@ echo -e "${GREEN}✅ Configuration système vérifiée${NC}"
 # INSTALLATION DOCKER
 # ============================================
 
-echo -e "${BLUE}[2/9]${NC} Installation de Docker..."
+echo -e "${BLUE}[3/10]${NC} Installation de Docker..."
 
 if command -v docker &> /dev/null; then
   DOCKER_VERSION=$(docker --version | grep -oP '\d+\.\d+\.\d+')
@@ -82,14 +95,28 @@ else
     lsb-release \
     > /dev/null 2>&1
   
-  # Ajout du repository Docker
+  # Ajout du repository Docker selon l'OS
   install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  chmod a+r /etc/apt/keyrings/docker.gpg
   
-  echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-    $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  if [ "$OS_ID" = "ubuntu" ]; then
+    echo "Configuration du repository Docker pour Ubuntu..."
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+      $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  elif [ "$OS_ID" = "debian" ]; then
+    echo "Configuration du repository Docker pour Debian..."
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+      $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  else
+    echo -e "${RED}❌ OS non supporté: $OS_ID${NC}"
+    echo -e "${YELLOW}Ce script supporte Ubuntu et Debian uniquement${NC}"
+    exit 1
+  fi
   
   # Installation Docker
   apt-get update -qq
@@ -112,7 +139,7 @@ fi
 # VÉRIFICATION DOCKER COMPOSE
 # ============================================
 
-echo -e "${BLUE}[3/9]${NC} Vérification de Docker Compose..."
+echo -e "${BLUE}[4/10]${NC} Vérification de Docker Compose..."
 
 if docker compose version &> /dev/null; then
   COMPOSE_VERSION=$(docker compose version | grep -oP '\d+\.\d+\.\d+')
@@ -126,7 +153,7 @@ fi
 # CONFIGURATION SYSTÈME POUR WAZUH
 # ============================================
 
-echo -e "${BLUE}[4/9]${NC} Configuration système pour Wazuh..."
+echo -e "${BLUE}[5/10]${NC} Configuration système pour Wazuh..."
 
 # Augmenter vm.max_map_count (requis pour Wazuh Indexer)
 if ! grep -q "vm.max_map_count=262144" /etc/sysctl.conf; then
@@ -147,7 +174,7 @@ echo -e "${GREEN}✅ Système configuré${NC}"
 # CLONAGE DU REPOSITORY WAZUH-DOCKER
 # ============================================
 
-echo -e "${BLUE}[5/9]${NC} Téléchargement de Wazuh Docker..."
+echo -e "${BLUE}[6/10]${NC} Téléchargement de Wazuh Docker..."
 
 WAZUH_DOCKER_DIR="/opt/wazuh-docker"
 
@@ -173,7 +200,7 @@ echo -e "${GREEN}✅ Wazuh Docker téléchargé${NC}"
 # GÉNÉRATION DES CERTIFICATS
 # ============================================
 
-echo -e "${BLUE}[6/9]${NC} Génération des certificats SSL..."
+echo -e "${BLUE}[7/10]${NC} Génération des certificats SSL..."
 
 # Vérifier si les certificats existent déjà
 if [ -f "config/wazuh_indexer_ssl_certs/root-ca.pem" ]; then
@@ -203,7 +230,7 @@ echo -e "${GREEN}✅ Certificats SSL générés${NC}"
 # CONFIGURATION PERSONNALISÉE
 # ============================================
 
-echo -e "${BLUE}[7/9]${NC} Application de la configuration personnalisée..."
+echo -e "${BLUE}[8/10]${NC} Application de la configuration personnalisée..."
 
 # Copier les configurations personnalisées depuis le projet si elles existent
 if [ -f "$PROJECT_ROOT/wazuh/manager.conf" ]; then
@@ -229,7 +256,7 @@ echo -e "${GREEN}✅ Configuration appliquée${NC}"
 # DÉPLOIEMENT WAZUH
 # ============================================
 
-echo -e "${BLUE}[8/9]${NC} Déploiement de Wazuh (peut prendre 5-10 minutes)..."
+echo -e "${BLUE}[9/10]${NC} Déploiement de Wazuh (peut prendre 5-10 minutes)..."
 echo "Téléchargement et démarrage des conteneurs..."
 
 # Démarrer Wazuh en arrière-plan
@@ -273,7 +300,7 @@ done
 # CONFIGURATION FIREWALL
 # ============================================
 
-echo -e "${BLUE}[9/9]${NC} Configuration du firewall UFW..."
+echo -e "${BLUE}[10/10]${NC} Configuration du firewall UFW..."
 
 if command -v ufw &> /dev/null; then
   # Ports Wazuh
