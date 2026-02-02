@@ -1,7 +1,6 @@
 #!/bin/bash
 #
 # install_radius.sh - Installation FreeRADIUS simple
-# VERSION ULTRA-SIMPLE SANS GROUPES - 3 février 2026
 #
 
 set -e
