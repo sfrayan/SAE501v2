@@ -48,6 +48,7 @@ if [ -f /etc/os-release ]; then
   OS_ID=$ID
   OS_VERSION_CODENAME=$VERSION_CODENAME
   echo "OS détecté: $NAME $VERSION"
+  echo "ID: $OS_ID, Codename: $OS_VERSION_CODENAME"
 else
   echo -e "${RED}❌ Impossible de détecter l'OS${NC}"
   exit 1
@@ -95,31 +96,38 @@ else
     lsb-release \
     > /dev/null 2>&1
   
-  # Ajout du repository Docker selon l'OS
+  # Ajout du repository Docker selon l'OS (utiliser les variables déjà définies)
   install -m 0755 -d /etc/apt/keyrings
   
+  echo "Configuration du repository Docker pour $OS_ID..."
+  
   if [ "$OS_ID" = "ubuntu" ]; then
-    echo "Configuration du repository Docker pour Ubuntu..."
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
     echo \
       "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-      $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+      $OS_VERSION_CODENAME stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
   elif [ "$OS_ID" = "debian" ]; then
-    echo "Configuration du repository Docker pour Debian..."
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
     echo \
       "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
-      $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+      $OS_VERSION_CODENAME stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
   else
     echo -e "${RED}❌ OS non supporté: $OS_ID${NC}"
     echo -e "${YELLOW}Ce script supporte Ubuntu et Debian uniquement${NC}"
     exit 1
   fi
   
+  # Afficher le contenu du fichier source pour vérification
+  echo "Repository configuré:"
+  cat /etc/apt/sources.list.d/docker.list
+  
   # Installation Docker
+  echo "Mise à jour des sources apt..."
   apt-get update -qq
+  
+  echo "Installation des packages Docker..."
   DEBIAN_FRONTEND=noninteractive apt-get install -y \
     docker-ce \
     docker-ce-cli \
