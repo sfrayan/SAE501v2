@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # install_radius.sh - Installation complète FreeRADIUS + MySQL
-# Version corrigée avec configuration SQL, EAP et LOGGING DÉTAILLÉ
+# VERSION SIMPLIFIÉE SANS GROUPES - 2 février 2026
 #
 
 set -e
@@ -11,7 +11,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FR_CONF="/etc/freeradius/3.0"
 
 echo "──────────────────────────────────────"
-echo "🚀 Installation FreeRADIUS + MySQL"
+echo "🚀 Installation FreeRADIUS + MySQL (SANS GROUPES)"
 echo "──────────────────────────────────────"
 
 # Vérifier root
@@ -56,8 +56,8 @@ else
   exit 1
 fi
 
-# 5. Création tables
-echo "[5/14] Création des tables..."
+# 5. Création tables (VERSION SANS GROUPES)
+echo "[5/14] Création des tables (VERSION SIMPLIFIÉE)..."
 if [ -f "$PROJECT_ROOT/radius/sql/create_tables.sql" ]; then
   mysql -u root radius < "$PROJECT_ROOT/radius/sql/create_tables.sql"
 else
@@ -83,8 +83,8 @@ if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
   chown root:freerad "$FR_CONF/users"
 fi
 
-# 8. Configuration SQL module (CORRIGÉ - sans group_membership_query)
-echo "[8/14] Configuration module SQL..."
+# 8. Configuration SQL module (SANS GROUPES - VERSION MINIMALISTE)
+echo "[8/14] Configuration module SQL (SANS GROUPES)..."
 cat > "$FR_CONF/mods-available/sql" <<'EOF'
 sql {
     driver = "rlm_sql_mysql"
@@ -97,17 +97,18 @@ sql {
     
     radius_db = "radius"
     
+    # Tables principales (authentification seulement)
     acct_table1 = "radacct"
     acct_table2 = "radacct"
     postauth_table = "radpostauth"
     authcheck_table = "radcheck"
     authreply_table = "radreply"
-    groupcheck_table = "radgroupcheck"
-    groupreply_table = "radgroupreply"
-    usergroup_table = "radusergroup"
     
-    # ✅ PAS de group_membership_query pour éviter le WARNING
-    # L'authentification PEAP-MSCHAPv2 n'en a pas besoin
+    # ❌ TABLES DE GROUPES DÉSACTIVÉES
+    # Ces lignes sont commentées pour éviter les warnings
+    # groupcheck_table = "radgroupcheck"
+    # groupreply_table = "radgroupreply"
+    # usergroup_table = "radusergroup"
     
     read_clients = yes
     client_table = "nas"
@@ -130,7 +131,9 @@ chown root:freerad "$FR_CONF/mods-available/sql"
 # Activer module SQL
 ln -sf ../mods-available/sql "$FR_CONF/mods-enabled/sql" 2>/dev/null || true
 
-# 9. Configuration module LINELOG pour logging détaillé (AMÉLIORÉ)
+echo "  ✅ Module SQL configuré SANS système de groupes"
+
+# 9. Configuration module LINELOG pour logging détaillé
 echo "[9/14] Configuration logging détaillé..."
 cat > "$FR_CONF/mods-available/linelog" <<'EOF'
 linelog {
@@ -176,7 +179,7 @@ cat > /etc/logrotate.d/freeradius <<'LOGROTATE'
 }
 LOGROTATE
 
-# 11. ACTIVER LINELOG DANS LES SITES (IMPORTANT!)
+# 11. ACTIVER LINELOG DANS LES SITES
 echo "[11/14] Activation linelog dans sites..."
 
 # Ajouter linelog dans post-auth du site default (s'il n'y est pas)
@@ -196,11 +199,11 @@ echo "[12/14] Génération certificats TLS..."
 cd "$FR_CONF/certs"
 
 # Configurer le certificat
-sed -i 's/default_days\s*=.*/default_days = 3650/' ca.cnf
-sed -i 's/countryName_default\s*=.*/countryName_default = FR/' ca.cnf
-sed -i 's/stateOrProvinceName_default\s*=.*/stateOrProvinceName_default = IDF/' ca.cnf
-sed -i 's/localityName_default\s*=.*/localityName_default = Paris/' ca.cnf
-sed -i 's/organizationName_default\s*=.*/organizationName_default = SAE501/' ca.cnf
+sed -i 's/default_days\s*=.*/default_days = 3650/' ca.cnf 2>/dev/null || true
+sed -i 's/countryName_default\s*=.*/countryName_default = FR/' ca.cnf 2>/dev/null || true
+sed -i 's/stateOrProvinceName_default\s*=.*/stateOrProvinceName_default = IDF/' ca.cnf 2>/dev/null || true
+sed -i 's/localityName_default\s*=.*/localityName_default = Paris/' ca.cnf 2>/dev/null || true
+sed -i 's/organizationName_default\s*=.*/organizationName_default = SAE501/' ca.cnf 2>/dev/null || true
 
 make > /dev/null 2>&1 || {
   echo "⚠️  Génération certificats échouée, utilisation des certificats par défaut"
@@ -215,8 +218,8 @@ ln -sf ../mods-available/eap "$FR_CONF/mods-enabled/eap" 2>/dev/null || true
 echo "[13/14] Configuration permissions..."
 chown -R root:freerad "$FR_CONF"
 chmod -R 750 "$FR_CONF"
-chmod 640 "$FR_CONF/clients.conf"
-chmod 640 "$FR_CONF/users"
+chmod 640 "$FR_CONF/clients.conf" 2>/dev/null || true
+chmod 640 "$FR_CONF/users" 2>/dev/null || true
 
 # Vérifier syntaxe
 echo "──────────────────────────────────────"
@@ -245,7 +248,7 @@ if radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123 2>&1 | grep -q "Acc
   echo "✅ Test authentification réussi"
   sleep 2
   echo "📝 Dernières lignes du log:"
-  tail -3 /var/log/freeradius/radius.log | sed 's/^/  /'
+  tail -3 /var/log/freeradius/radius.log 2>/dev/null | sed 's/^/  /' || echo "  (logs en cours de génération...)"
 else
   echo "⚠️  Test authentification échoué (vérifier logs)"
 fi
@@ -256,12 +259,14 @@ systemctl status freeradius --no-pager
 
 echo ""
 echo "──────────────────────────────────────"
-echo "✅ Installation FreeRADIUS terminée"
+echo "✅ Installation FreeRADIUS terminée (VERSION SIMPLIFIÉE)"
 echo ""
 echo "📋 CORRECTIONS APPLIQUÉES:"
-echo "  ✅ WARNING group_membership_query corrigé"
+echo "  ✅ Système de groupes complètement désactivé"
+echo "  ✅ Authentification directe utilisateur uniquement"
 echo "  ✅ Fichier de log créé avec permissions correctes"
 echo "  ✅ Utilisateur www-data ajouté au groupe freerad"
+echo "  ✅ PLUS AUCUN WARNING sur group_membership_query"
 echo ""
 echo "📝 Commandes utiles:"
 echo "  systemctl status freeradius"

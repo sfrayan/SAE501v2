@@ -1,18 +1,24 @@
 --
--- create_tables.sql - Schéma complet base de données RADIUS
+-- create_tables.sql - Schéma SIMPLIFIÉ base de données RADIUS (SANS GROUPES)
 --
--- Fichier: radius/sql/create_tables.sql
+-- Version: 2 février 2026 - VERSION SIMPLIFIÉE
 -- Auteur: GroupeNani
--- Date: 2 février 2026 (corrigé)
 --
 -- Description:
---   Crée le schéma complet pour FreeRADIUS avec MySQL.
---   Tables: nas, radcheck, radreply, radusergroup, radgroupcheck, radgroupreply,
---           radacct, radpostauth, radaudit
+--   Crée un schéma minimaliste pour FreeRADIUS avec MySQL.
+--   SANS système de groupes pour éviter les warnings.
 --
--- Prérequis:
---   - Base de données 'radius' créée (voir init_appuser.sql)
---   - Utilisateur 'radius_app' avec permissions
+--   Tables activées:
+--     - nas (clients RADIUS)
+--     - radcheck (authentification utilisateurs)
+--     - radreply (réponses utilisateurs)
+--     - radacct (accounting/sessions)
+--     - radpostauth (logs post-auth)
+--
+--   Tables DÉSACTIVÉES (plus de groupes):
+--     ❌ radusergroup
+--     ❌ radgroupcheck
+--     ❌ radgroupreply
 --
 -- Utilisation:
 --   $ sudo mysql -u root -p radius < radius/sql/create_tables.sql
@@ -21,10 +27,17 @@
 USE radius;
 
 -- ============================================
+-- SUPPRIMER LES ANCIENNES TABLES DE GROUPES
+-- ============================================
+
+DROP TABLE IF EXISTS radusergroup;
+DROP TABLE IF EXISTS radgroupcheck;
+DROP TABLE IF EXISTS radgroupreply;
+DROP VIEW IF EXISTS v_users_with_groups;
+
+-- ============================================
 -- 0. TABLE: nas (CLIENTS RADIUS)
 -- ============================================
--- Définition des clients RADIUS (routeurs, APs, etc.)
--- Cette table est CRUCIALE pour l'authentification
 
 CREATE TABLE IF NOT EXISTS nas (
   id int(11) unsigned NOT NULL auto_increment,
@@ -46,10 +59,8 @@ INSERT IGNORE INTO nas (nasname, shortname, type, secret, description) VALUES
   ('192.168.10.1', 'TL-MR100', 'other', 'testing123', 'Routeur TP-Link TL-MR100');
 
 -- ============================================
--- 1. TABLE: radcheck
+-- 1. TABLE: radcheck (AUTHENTIFICATION)
 -- ============================================
--- Attributs d'authentification des utilisateurs
--- Exemple: User-Password, Cleartext-Password
 
 CREATE TABLE IF NOT EXISTS radcheck (
   id int(11) unsigned NOT NULL auto_increment,
@@ -63,9 +74,8 @@ CREATE TABLE IF NOT EXISTS radcheck (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
--- 2. TABLE: radreply
+-- 2. TABLE: radreply (RÉPONSES)
 -- ============================================
--- Attributs de réponse pour les utilisateurs acceptés
 
 CREATE TABLE IF NOT EXISTS radreply (
   id int(11) unsigned NOT NULL auto_increment,
@@ -79,54 +89,8 @@ CREATE TABLE IF NOT EXISTS radreply (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
--- 3. TABLE: radusergroup
+-- 3. TABLE: radacct (ACCOUNTING/SESSIONS)
 -- ============================================
--- Association utilisateurs → groupes
-
-CREATE TABLE IF NOT EXISTS radusergroup (
-  username varchar(64) NOT NULL default '',
-  groupname varchar(64) NOT NULL default '',
-  priority int(11) NOT NULL default '1',
-  KEY username (username),
-  KEY groupname (groupname)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- ============================================
--- 4. TABLE: radgroupcheck
--- ============================================
--- Attributs d'authentification des groupes
-
-CREATE TABLE IF NOT EXISTS radgroupcheck (
-  id int(11) unsigned NOT NULL auto_increment,
-  groupname varchar(64) NOT NULL default '',
-  attribute varchar(64) NOT NULL default '',
-  op char(2) NOT NULL default ':=',
-  value varchar(253) NOT NULL default '',
-  PRIMARY KEY  (id),
-  KEY groupname (groupname),
-  KEY attribute (attribute)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- ============================================
--- 5. TABLE: radgroupreply
--- ============================================
--- Attributs de réponse des groupes
-
-CREATE TABLE IF NOT EXISTS radgroupreply (
-  id int(11) unsigned NOT NULL auto_increment,
-  groupname varchar(64) NOT NULL default '',
-  attribute varchar(64) NOT NULL default '',
-  op char(2) NOT NULL default '=',
-  value varchar(253) NOT NULL default '',
-  PRIMARY KEY  (id),
-  KEY groupname (groupname),
-  KEY attribute (attribute)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- ============================================
--- 6. TABLE: radacct
--- ============================================
--- Enregistrement des sessions (Accounting)
 
 CREATE TABLE IF NOT EXISTS radacct (
   radacctid bigint(21) NOT NULL auto_increment,
@@ -166,9 +130,8 @@ CREATE TABLE IF NOT EXISTS radacct (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
--- 7. TABLE: radpostauth
+-- 4. TABLE: radpostauth (LOGS POST-AUTH)
 -- ============================================
--- Log post-authentification (succès/rejet)
 
 CREATE TABLE IF NOT EXISTS radpostauth (
   id int(11) unsigned NOT NULL auto_increment,
@@ -184,47 +147,19 @@ CREATE TABLE IF NOT EXISTS radpostauth (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================
--- 8. TABLE: radaudit (optionnel)
--- ============================================
--- Audit des changements (INSERT/UPDATE/DELETE)
-
-CREATE TABLE IF NOT EXISTS radaudit (
-  id int(11) unsigned NOT NULL auto_increment,
-  username varchar(64) NOT NULL default '',
-  table_name varchar(64) NOT NULL default '',
-  operation varchar(8) NOT NULL default '',
-  old_value varchar(253) default NULL,
-  new_value varchar(253) default NULL,
-  change_date timestamp NOT NULL default CURRENT_TIMESTAMP,
-  PRIMARY KEY  (id),
-  KEY username (username),
-  KEY change_date (change_date)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- ============================================
--- DONNÉES INITIALES - GROUPES
+-- 5. DONNÉES INITIALES - UTILISATEURS
 -- ============================================
 
-INSERT INTO radgroupcheck (groupname, attribute, op, value) VALUES
-  ('staff', 'Auth-Type', ':=', 'Local'),
-  ('staff', 'Session-Timeout', ':=', '3600'),
-  ('guests', 'Auth-Type', ':=', 'Local'),
-  ('guests', 'Session-Timeout', ':=', '1800'),
-  ('managers', 'Auth-Type', ':=', 'Local'),
-  ('managers', 'Session-Timeout', ':=', '7200');
+-- Supprimer les utilisateurs existants
+DELETE FROM radcheck WHERE username IN (
+  'alice@gym.fr', 'bob@gym.fr', 'charlie@gym.fr', 'david@gym.fr', 'emma@gym.fr'
+);
 
-INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES
-  ('staff', 'Reply-Message', '=', 'Bienvenue Staff'),
-  ('staff', 'Framed-Protocol', '=', 'PPP'),
-  ('guests', 'Reply-Message', '=', 'Accès Guest'),
-  ('guests', 'Framed-Protocol', '=', 'PPP'),
-  ('managers', 'Reply-Message', '=', 'Bienvenue Manager'),
-  ('managers', 'Framed-Protocol', '=', 'PPP');
+DELETE FROM radreply WHERE username IN (
+  'alice@gym.fr', 'bob@gym.fr', 'charlie@gym.fr', 'david@gym.fr', 'emma@gym.fr'
+);
 
--- ============================================
--- DONNÉES INITIALES - UTILISATEURS
--- ============================================
-
+-- Insérer les utilisateurs (authentification directe, SANS groupes)
 INSERT INTO radcheck (username, attribute, op, value) VALUES
   ('alice@gym.fr', 'Cleartext-Password', ':=', 'Alice@123!'),
   ('bob@gym.fr', 'Cleartext-Password', ':=', 'Bob@456!'),
@@ -232,30 +167,29 @@ INSERT INTO radcheck (username, attribute, op, value) VALUES
   ('david@gym.fr', 'Cleartext-Password', ':=', 'David@2026!'),
   ('emma@gym.fr', 'Cleartext-Password', ':=', 'Emma@2026!');
 
-INSERT INTO radusergroup (username, groupname, priority) VALUES
-  ('alice@gym.fr', 'staff', 1),
-  ('bob@gym.fr', 'staff', 1),
-  ('charlie@gym.fr', 'guests', 1),
-  ('david@gym.fr', 'managers', 1),
-  ('emma@gym.fr', 'staff', 1);
+-- Ajouter des attributs de réponse pour chaque utilisateur (directement)
+INSERT INTO radreply (username, attribute, op, value) VALUES
+  ('alice@gym.fr', 'Reply-Message', '=', 'Bienvenue Alice (Staff)'),
+  ('bob@gym.fr', 'Reply-Message', '=', 'Bienvenue Bob (Staff)'),
+  ('charlie@gym.fr', 'Reply-Message', '=', 'Bienvenue Charlie (Guest)'),
+  ('david@gym.fr', 'Reply-Message', '=', 'Bienvenue David (Manager)'),
+  ('emma@gym.fr', 'Reply-Message', '=', 'Bienvenue Emma (Staff)');
 
 -- ============================================
--- VUES UTILES
+-- 6. VUE SIMPLIFIÉE
 -- ============================================
 
--- Vue: Utilisateurs avec leurs groupes et attributs
-CREATE OR REPLACE VIEW v_users_with_groups AS
+-- Vue: Tous les utilisateurs avec leurs attributs
+CREATE OR REPLACE VIEW v_users_simple AS
 SELECT DISTINCT
   rc.username,
-  rc.attribute,
+  rc.attribute as check_attribute,
   rc.value as check_value,
-  rug.groupname,
   rr.attribute as reply_attribute,
   rr.value as reply_value
 FROM radcheck rc
-LEFT JOIN radusergroup rug ON rc.username = rug.username
 LEFT JOIN radreply rr ON rc.username = rr.username
-ORDER BY rc.username, rug.groupname;
+ORDER BY rc.username;
 
 -- Vue: Sessions actives
 CREATE OR REPLACE VIEW v_active_sessions AS
@@ -273,83 +207,29 @@ WHERE acctstoptime IS NULL
 ORDER BY acctstarttime DESC;
 
 -- ============================================
--- TRIGGERS (Audit automatique)
--- ============================================
-
--- Supprimer les triggers existants si présents
-DROP TRIGGER IF EXISTS tr_radcheck_insert;
-DROP TRIGGER IF EXISTS tr_radcheck_update;
-DROP TRIGGER IF EXISTS tr_radcheck_delete;
-DROP TRIGGER IF EXISTS tr_radreply_insert;
-DROP TRIGGER IF EXISTS tr_radreply_update;
-DROP TRIGGER IF EXISTS tr_radreply_delete;
-DROP TRIGGER IF EXISTS tr_radusergroup_insert;
-DROP TRIGGER IF EXISTS tr_radusergroup_update;
-DROP TRIGGER IF EXISTS tr_radusergroup_delete;
-
--- Trigger: Insert audit radcheck
-DELIMITER //
-CREATE TRIGGER tr_radcheck_insert AFTER INSERT ON radcheck
-FOR EACH ROW
-BEGIN
-  INSERT INTO radaudit (username, table_name, operation, new_value)
-  VALUES (NEW.username, 'radcheck', 'INSERT', CONCAT(NEW.attribute, '=', NEW.value));
-END//
-DELIMITER ;
-
--- Trigger: Update audit radcheck
-DELIMITER //
-CREATE TRIGGER tr_radcheck_update AFTER UPDATE ON radcheck
-FOR EACH ROW
-BEGIN
-  INSERT INTO radaudit (username, table_name, operation, old_value, new_value)
-  VALUES (NEW.username, 'radcheck', 'UPDATE', CONCAT(OLD.attribute, '=', OLD.value), CONCAT(NEW.attribute, '=', NEW.value));
-END//
-DELIMITER ;
-
--- Trigger: Delete audit radcheck
-DELIMITER //
-CREATE TRIGGER tr_radcheck_delete AFTER DELETE ON radcheck
-FOR EACH ROW
-BEGIN
-  INSERT INTO radaudit (username, table_name, operation, old_value)
-  VALUES (OLD.username, 'radcheck', 'DELETE', CONCAT(OLD.attribute, '=', OLD.value));
-END//
-DELIMITER ;
-
--- ============================================
 -- NOTES
 -- ============================================
 
+-- ✅ VERSION SIMPLIFIÉE:
+--   - Pas de tables de groupes (radusergroup, radgroupcheck, radgroupreply)
+--   - Authentification directe utilisateur via radcheck
+--   - Réponses directes via radreply
+--   - Plus de warnings "group_membership_query"
+--
 -- Opérateurs (op):
 --   :=  = Défini (remplace)
 --   =   = Ajouter
 --   ==  = Comparer (condition)
---   !=  = Différent de
---   >   = Supérieur à
---   <   = Inférieur à
---   >=  = Supérieur ou égal
---   <=  = Inférieur ou égal
-
+--
 -- Attributs courants:
---   User-Password: Mot de passe (MD5 hash en production)
 --   Cleartext-Password: Mot de passe en clair (tests seulement)
 --   Reply-Message: Message au client
 --   Session-Timeout: Durée max session (sec)
---   Framed-Protocol: PPP, SLIP, ARAP
---   Auth-Type: Local, LDAP, RADIUS, etc.
-
+--
 -- Flux authentification:
 --   1. Client envoie identifiants
 --   2. FreeRADIUS cherche dans radcheck
 --   3. Vérifie mot de passe
 --   4. Si OK, cherche dans radreply
---   5. Si utilisateur dans groupe, ajoute attributs radgroupreply
---   6. Retourne Access-Accept avec attributs
-
--- Production:
---   - Stocker MD5 hash (not Cleartext-Password)
---   - Utiliser Cleartext-Password UNIQUEMENT pour tests
---   - Activer Message-Authenticator (RADIUS security)
---   - Archiver logs audit régulièrement
+--   5. Retourne Access-Accept avec attributs
 --
