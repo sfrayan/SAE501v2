@@ -108,7 +108,7 @@ check_users() {
     if id wazuh &>/dev/null; then
         pass "Utilisateur wazuh existe"
     else
-        fail "Utilisateur wazuh n'existe pas"
+        info "Utilisateur wazuh n'existe pas (Wazuh non installé)"
     fi
     
     if id freerad &>/dev/null; then
@@ -192,33 +192,40 @@ check_mysql() {
 check_wazuh() {
     header "WAZUH"
     
-     # Service : on teste le processus wazuh-analysisd
-    if pgrep -x wazuh-analysisd >/dev/null 2>&1; then
-        pass "Service Wazuh Manager actif"
+    # Check Docker Wazuh
+    if command -v docker &>/dev/null && docker ps 2>/dev/null | grep -q "wazuh.manager"; then
+        pass "Wazuh Docker en cours d'exécution"
+        
+        # Vérifier les logs exportés
+        if [[ -f /var/log/wazuh-export/alerts.json ]]; then
+            SIZE=$(stat -c %s /var/log/wazuh-export/alerts.json 2>/dev/null)
+            if [[ $SIZE -gt 10 ]]; then
+                pass "Logs Wazuh exportés: $SIZE bytes"
+            else
+                fail "Logs Wazuh : Fichier vide (0 bytes)"
+            fi
+        else
+            fail "Logs Wazuh : Fichier d'export manquant"
+        fi
+        
+        # Vérifier cron export
+        if crontab -l 2>/dev/null | grep -q "export-wazuh-logs"; then
+            pass "Cron export : Configuré"
+        else
+            fail "Cron export : Pas configuré"
+        fi
+        
+    elif pgrep -x wazuh-analysisd >/dev/null 2>&1; then
+        pass "Service Wazuh Manager actif (natif)"
     else
         warn "Service Wazuh Manager non actif (optionnel)"
     fi
     
     # Répertoire
-    if [[ -d /var/ossec ]]; then
-        pass "Répertoire Wazuh /var/ossec existe"
+    if [[ -d /var/ossec ]] || [[ -d /opt/wazuh-docker ]]; then
+        pass "Répertoire Wazuh existe"
     else
         warn "Wazuh non installé (optionnel)"
-    fi
-    
-    # Règles
-    if [[ -f /var/ossec/etc/rules/local_rules.xml ]]; then
-        RULE_COUNT=$(grep -c "^[[:space:]]*<rule" /var/ossec/etc/rules/local_rules.xml 2>/dev/null || echo "0")
-        pass "Règles personnalisées importées ($RULE_COUNT règles)"
-    else
-        info "Fichier local_rules.xml non trouvé"
-    fi
-    
-    # Logs
-    if [[ -f /var/ossec/logs/ossec.log ]]; then
-        pass "Log Wazuh accessible"
-    else
-        info "Log Wazuh non accessible"
     fi
     
     separator
@@ -255,12 +262,20 @@ check_web() {
 check_routing() {
     header "RÉSEAU & ROUTING"
     
-    # Interface eth0/enp*
-    if ip addr | grep -q "inet.*192.168.10"; then
-        IP=$(ip addr | grep "inet.*192.168.10" | awk '{print $2}' | cut -d/ -f1)
-        pass "IP LAN configurée: $IP"
+    # Interface enp0s8 (Bridge)
+    if ip addr show enp0s8 2>/dev/null | grep -q "inet.*192.168.10"; then
+        IP=$(ip addr show enp0s8 | grep "inet.*192.168.10" | awk '{print $2}' | cut -d/ -f1)
+        pass "Interface enp0s8 (Bridge) : $IP"
     else
-        warn "IP LAN non trouvée"
+        warn "Interface enp0s8 non trouvée ou pas d'IP 192.168.10.x"
+    fi
+    
+    # Interface enp0s3 (NAT)
+    if ip addr show enp0s3 2>/dev/null | grep -q "inet"; then
+        IP=$(ip addr show enp0s3 | grep "inet" | grep -v inet6 | awk '{print $2}' | cut -d/ -f1 | head -1)
+        pass "Interface enp0s3 (NAT) : $IP"
+    else
+        warn "Interface enp0s3 non trouvée"
     fi
     
     # Gateway
@@ -288,7 +303,7 @@ check_firewall() {
     # UFW status
     if command -v ufw &>/dev/null; then
         if ufw status | grep -q "Status: active"; then
-            pass "UFW actif"
+            pass "UFW : Installé et actif"
 
             # Ports RADIUS (1812-1813)
             if ufw status | grep -qE "1812/(tcp|udp)|1813/(tcp|udp)"; then
@@ -307,7 +322,7 @@ check_firewall() {
             warn "UFW installé mais inactif"
         fi
     else
-        info "UFW non installé sur ce système"
+        fail "UFW : Pas installé"
     fi
     
     separator
