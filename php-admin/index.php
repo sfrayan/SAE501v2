@@ -44,7 +44,7 @@ $page_title = 'Accueil';
             background: white;
             border-radius: 10px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            max-width: 800px;
+            max-width: 900px;
             width: 100%;
             padding: 40px;
         }
@@ -103,6 +103,10 @@ $page_title = 'Accueil';
         
         .menu-item.wazuh {
             background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+        }
+        
+        .menu-item.logs {
+            background: linear-gradient(135deg, #16a085 0%, #138d75 100%);
         }
         
         .menu-item h3 {
@@ -252,6 +256,13 @@ $page_title = 'Accueil';
                 <div class="icon">🗑️</div>
                 <h3>Supprimer Utilisateur</h3>
                 <p>Supprimer un utilisateur existant</p>
+            </a>
+            
+            <!-- Logs Système -->
+            <a href="view_logs.php" class="menu-item logs">
+                <div class="icon">📊</div>
+                <h3>Logs Système</h3>
+                <p>RADIUS, Syslog, Auth, Wazuh</p>
             </a>
             
             <!-- Logs Wazuh -->
