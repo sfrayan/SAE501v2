@@ -21,7 +21,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 1. Installation paquets
-echo "[1/13] Installation paquets..."
+echo "[1/14] Installation paquets..."
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   freeradius \
@@ -33,12 +33,12 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   > /dev/null 2>&1
 
 # 2. Démarrage MySQL
-echo "[2/13] Configuration MySQL..."
+echo "[2/14] Configuration MySQL..."
 systemctl enable mariadb > /dev/null 2>&1
 systemctl start mariadb
 
 # 3. Sécurisation MySQL (automated)
-echo "[3/13] Sécurisation MySQL..."
+echo "[3/14] Sécurisation MySQL..."
 mysql -u root -e "
   DELETE FROM mysql.user WHERE User='';
   DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
@@ -48,7 +48,7 @@ mysql -u root -e "
 " 2>/dev/null || true
 
 # 4. Création base et utilisateur
-echo "[4/13] Création base de données RADIUS..."
+echo "[4/14] Création base de données RADIUS..."
 if [ -f "$PROJECT_ROOT/radius/sql/init_appuser.sql" ]; then
   mysql -u root < "$PROJECT_ROOT/radius/sql/init_appuser.sql"
 else
@@ -57,7 +57,7 @@ else
 fi
 
 # 5. Création tables
-echo "[5/13] Création des tables..."
+echo "[5/14] Création des tables..."
 if [ -f "$PROJECT_ROOT/radius/sql/create_tables.sql" ]; then
   mysql -u root radius < "$PROJECT_ROOT/radius/sql/create_tables.sql"
 else
@@ -66,7 +66,7 @@ else
 fi
 
 # 6. Configuration FreeRADIUS - clients.conf
-echo "[6/13] Configuration clients RADIUS..."
+echo "[6/14] Configuration clients RADIUS..."
 if [ -f "$PROJECT_ROOT/radius/clients.conf" ]; then
   cp "$FR_CONF/clients.conf" "$FR_CONF/clients.conf.backup" 2>/dev/null || true
   cp "$PROJECT_ROOT/radius/clients.conf" "$FR_CONF/clients.conf"
@@ -75,7 +75,7 @@ if [ -f "$PROJECT_ROOT/radius/clients.conf" ]; then
 fi
 
 # 7. Configuration FreeRADIUS - users
-echo "[7/13] Configuration users..."
+echo "[7/14] Configuration users..."
 if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
   cp "$FR_CONF/users" "$FR_CONF/users.backup" 2>/dev/null || true
   cp "$PROJECT_ROOT/radius/users.txt" "$FR_CONF/users"
@@ -84,7 +84,7 @@ if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
 fi
 
 # 8. Configuration SQL module (SANS LES QUERIES DE GROUPE)
-echo "[8/13] Configuration module SQL..."
+echo "[8/14] Configuration module SQL..."
 cat > "$FR_CONF/mods-available/sql" <<'EOF'
 sql {
     driver = "rlm_sql_mysql"
@@ -132,16 +132,13 @@ chown root:freerad "$FR_CONF/mods-available/sql"
 # Activer module SQL
 ln -sf ../mods-available/sql "$FR_CONF/mods-enabled/sql" 2>/dev/null || true
 
-# 9. Configuration module LINELOG pour logging détaillé (SANS collision avec detail.log)
-echo "[9/13] Configuration logging détaillé..."
+# 9. Configuration module LINELOG pour logging détaillé
+echo "[9/14] Configuration logging détaillé..."
 cat > "$FR_CONF/mods-available/linelog" <<'EOF'
 linelog {
     filename = "/var/log/freeradius/radius.log"
-    
     format = "%t user=%{%{User-Name}:-unknown} result=%{%{reply:Packet-Type}:-Unknown} client=%{%{Packet-Src-IP-Address}:-0.0.0.0} nas=%{%{NAS-IP-Address}:-unknown} mac=%{%{Calling-Station-Id}:-unknown} auth_type=%{%{control:Auth-Type}:-None}"
-    
     permissions = 0640
-    
     reference = "messages.%{%{Packet-Type}:-default}"
 }
 EOF
@@ -159,7 +156,7 @@ chown freerad:freerad /var/log/freeradius/radius.log
 chmod 640 /var/log/freeradius/radius.log
 
 # 10. Configurer logrotate
-echo "[10/13] Configuration logrotate..."
+echo "[10/14] Configuration logrotate..."
 cat > /etc/logrotate.d/freeradius <<'LOGROTATE'
 /var/log/freeradius/radius.log {
     daily
@@ -175,17 +172,23 @@ cat > /etc/logrotate.d/freeradius <<'LOGROTATE'
 }
 LOGROTATE
 
-# 11. Utiliser le linelog pour les logs post-auth (au lieu de créer auth_log duplicate)
-echo "[11/13] Configuration post-auth logging..."
-if ! grep -q "post-auth" "$FR_CONF/sites-available/default"; then
-    sed -i '/post-auth {/a\        linelog' "$FR_CONF/sites-available/default"
-fi
-if ! grep -q "post-auth" "$FR_CONF/sites-available/inner-tunnel"; then
-    sed -i '/post-auth {/a\        linelog' "$FR_CONF/sites-available/inner-tunnel"
+# 11. ACTIVER LINELOG DANS LES SITES (IMPORTANT!)
+echo "[11/14] Activation linelog dans sites..."
+
+# Ajouter linelog dans post-auth du site default (s'il n'y est pas)
+if ! grep -q "^[[:space:]]*linelog" "$FR_CONF/sites-available/default"; then
+    sed -i '/^post-auth {$/a\        linelog' "$FR_CONF/sites-available/default"
 fi
 
+# Ajouter linelog dans post-auth du site inner-tunnel (s'il n'y est pas)
+if ! grep -q "^[[:space:]]*linelog" "$FR_CONF/sites-available/inner-tunnel"; then
+    sed -i '/^post-auth {$/a\        linelog' "$FR_CONF/sites-available/inner-tunnel"
+fi
+
+echo "  ✅ Linelog activé dans les sites"
+
 # 12. Génération certificats TLS
-echo "[12/13] Génération certificats TLS..."
+echo "[12/14] Génération certificats TLS..."
 cd "$FR_CONF/certs"
 
 # Configurer le certificat
@@ -205,7 +208,7 @@ cd - > /dev/null
 ln -sf ../mods-available/eap "$FR_CONF/mods-enabled/eap" 2>/dev/null || true
 
 # 13. Permissions finales
-echo "[13/13] Configuration permissions..."
+echo "[13/14] Configuration permissions..."
 chown -R root:freerad "$FR_CONF"
 chmod -R 750 "$FR_CONF"
 chmod 640 "$FR_CONF/clients.conf"
@@ -224,7 +227,7 @@ fi
 
 # Démarrage service
 echo "──────────────────────────────────────"
-echo "🔄 Démarrage services..."
+echo "[14/14] Démarrage services..."
 systemctl enable freeradius > /dev/null 2>&1
 systemctl restart freeradius
 
@@ -236,14 +239,18 @@ echo "────────────────────────�
 echo "🧪 Test authentification..."
 if radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123 2>&1 | grep -q "Access-Accept"; then
   echo "✅ Test authentification réussi"
-  echo "📝 Vérifier logs: tail -f /var/log/freeradius/radius.log"
+  sleep 2
+  echo "📝 Dernières lignes du log:"
+  tail -3 /var/log/freeradius/radius.log | sed 's/^/  /'
 else
   echo "⚠️  Test authentification échoué (vérifier logs)"
 fi
 
 # Afficher status
+echo ""
 systemctl status freeradius --no-pager
 
+echo ""
 echo "──────────────────────────────────────"
 echo "✅ Installation FreeRADIUS terminée"
 echo ""
