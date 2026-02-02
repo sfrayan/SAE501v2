@@ -10,9 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FR_CONF="/etc/freeradius/3.0"
 
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "──────────────────────────────────────"
 echo "🚀 Installation FreeRADIUS + MySQL"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "──────────────────────────────────────"
 
 # Vérifier root
 if [ "$EUID" -ne 0 ]; then
@@ -21,7 +21,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 1. Installation paquets
-echo "[1/10] Installation paquets..."
+echo "[1/11] Installation paquets..."
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   freeradius \
@@ -33,12 +33,12 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   > /dev/null 2>&1
 
 # 2. Démarrage MySQL
-echo "[2/10] Configuration MySQL..."
+echo "[2/11] Configuration MySQL..."
 systemctl enable mariadb > /dev/null 2>&1
 systemctl start mariadb
 
 # 3. Sécurisation MySQL (automated)
-echo "[3/10] Sécurisation MySQL..."
+echo "[3/11] Sécurisation MySQL..."
 mysql -u root -e "
   DELETE FROM mysql.user WHERE User='';
   DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
@@ -48,7 +48,7 @@ mysql -u root -e "
 " 2>/dev/null || true
 
 # 4. Création base et utilisateur
-echo "[4/10] Création base de données RADIUS..."
+echo "[4/11] Création base de données RADIUS..."
 if [ -f "$PROJECT_ROOT/radius/sql/init_appuser.sql" ]; then
   mysql -u root < "$PROJECT_ROOT/radius/sql/init_appuser.sql"
 else
@@ -57,7 +57,7 @@ else
 fi
 
 # 5. Création tables
-echo "[5/10] Création des tables..."
+echo "[5/11] Création des tables..."
 if [ -f "$PROJECT_ROOT/radius/sql/create_tables.sql" ]; then
   mysql -u root radius < "$PROJECT_ROOT/radius/sql/create_tables.sql"
 else
@@ -66,7 +66,7 @@ else
 fi
 
 # 6. Configuration FreeRADIUS - clients.conf
-echo "[6/10] Configuration clients RADIUS..."
+echo "[6/11] Configuration clients RADIUS..."
 if [ -f "$PROJECT_ROOT/radius/clients.conf" ]; then
   cp "$FR_CONF/clients.conf" "$FR_CONF/clients.conf.backup" 2>/dev/null || true
   cp "$PROJECT_ROOT/radius/clients.conf" "$FR_CONF/clients.conf"
@@ -75,7 +75,7 @@ if [ -f "$PROJECT_ROOT/radius/clients.conf" ]; then
 fi
 
 # 7. Configuration FreeRADIUS - users
-echo "[7/10] Configuration users..."
+echo "[7/11] Configuration users..."
 if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
   cp "$FR_CONF/users" "$FR_CONF/users.backup" 2>/dev/null || true
   cp "$PROJECT_ROOT/radius/users.txt" "$FR_CONF/users"
@@ -83,8 +83,8 @@ if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
   chown root:freerad "$FR_CONF/users"
 fi
 
-# 8. Configuration SQL module
-echo "[8/10] Configuration module SQL..."
+# 8. Configuration SQL module (SANS LES QUERIES DE GROUPE)
+echo "[8/11] Configuration module SQL..."
 cat > "$FR_CONF/mods-available/sql" <<'EOF'
 sql {
     driver = "rlm_sql_mysql"
@@ -105,6 +105,11 @@ sql {
     groupcheck_table = "radgroupcheck"
     groupreply_table = "radgroupreply"
     usergroup_table = "radusergroup"
+    
+    # Désactivé pour éviter les warnings MySQL
+    # group_membership_query = "..."
+    # groupcheck_query = "..."
+    # groupreply_query = "..."
     
     read_clients = yes
     client_table = "nas"
@@ -128,7 +133,7 @@ chown root:freerad "$FR_CONF/mods-available/sql"
 ln -sf ../mods-available/sql "$FR_CONF/mods-enabled/sql" 2>/dev/null || true
 
 # 9. Génération certificats TLS
-echo "[9/10] Génération certificats TLS..."
+echo "[9/11] Génération certificats TLS..."
 cd "$FR_CONF/certs"
 
 # Configurer le certificat
@@ -147,15 +152,25 @@ cd - > /dev/null
 # Activer module EAP
 ln -sf ../mods-available/eap "$FR_CONF/mods-enabled/eap" 2>/dev/null || true
 
-# 10. Permissions finales
-echo "[10/10] Configuration permissions..."
+# 10. Suppression des warnings GROUP_MEMBERSHIP
+echo "[10/11] Suppression warnings MySQL..."
+if [ -f "$FR_CONF/mods-enabled/sql" ]; then
+    # Commenter les queries de groupe si elles existent
+    sed -i 's/^[[:space:]]*group_membership_query/#group_membership_query/g' "$FR_CONF/mods-enabled/sql"
+    sed -i 's/^[[:space:]]*groupcheck_query/#groupcheck_query/g' "$FR_CONF/mods-enabled/sql"
+    sed -i 's/^[[:space:]]*groupreply_query/#groupreply_query/g' "$FR_CONF/mods-enabled/sql"
+    echo "✅ Warnings GROUP_MEMBERSHIP supprimés"
+fi
+
+# 11. Permissions finales
+echo "[11/11] Configuration permissions..."
 chown -R root:freerad "$FR_CONF"
 chmod -R 750 "$FR_CONF"
 chmod 640 "$FR_CONF/clients.conf"
 chmod 640 "$FR_CONF/users"
 
 # Vérifier syntaxe
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "──────────────────────────────────────"
 echo "🔍 Vérification configuration..."
 if freeradius -XC > /dev/null 2>&1; then
   echo "✅ Configuration FreeRADIUS valide"
@@ -166,7 +181,7 @@ else
 fi
 
 # Démarrage service
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "──────────────────────────────────────"
 echo "🔄 Démarrage services..."
 systemctl enable freeradius > /dev/null 2>&1
 systemctl restart freeradius
@@ -175,7 +190,7 @@ systemctl restart freeradius
 sleep 3
 
 # Test authentification
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "──────────────────────────────────────"
 echo "🧪 Test authentification..."
 if radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123 2>&1 | grep -q "Access-Accept"; then
   echo "✅ Test authentification réussi"
@@ -186,7 +201,7 @@ fi
 # Afficher status
 systemctl status freeradius --no-pager
 
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "──────────────────────────────────────"
 echo "✅ Installation FreeRADIUS terminée"
 echo ""
 echo "📝 Commandes utiles:"
@@ -199,6 +214,8 @@ echo "🔐 Identifiants MySQL:"
 echo "  Base: radius"
 echo "  User: radius_app"
 echo "  Pass: RadiusAppPass!2026"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "✅ Les warnings GROUP_MEMBERSHIP MySQL ont été désactivés"
+echo "──────────────────────────────────────"
 
 exit 0
