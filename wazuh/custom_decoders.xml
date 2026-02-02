@@ -1,0 +1,148 @@
+<!--
+  custom_decoders.xml - Décodeurs personnalisés pour SAE 5.01
+  
+  Décodeurs pour:
+  - FreeRADIUS (authentification réussie/échouée)
+  - Fail2Ban (ban/unban IP)
+  - UFW (BLOCK/ALLOW règles firewall)
+  
+  À placer dans: /var/ossec/etc/decoders/local_decoder.xml (Manager Wazuh)
+-->
+
+<!--
+  ════════════════════════════════════════════════════════════════════
+  FREERADIUS DECODERS
+  ════════════════════════════════════════════════════════════════════
+-->
+
+<!-- Décodeur parent pour authentification réussie -->
+<decoder name="freeradius_auth">
+  <prematch>Auth: \((\d+)\)\s+Login OK</prematch>
+</decoder>
+
+<!-- Décodeur parent pour authentification échouée -->
+<decoder name="freeradius_auth_fail">
+  <prematch>Auth: \((\d+)\)\s+Login incorrect</prematch>
+</decoder>
+
+<!-- Décodeur enfant: Login réussi avec extraction champs -->
+<decoder name="FREERADIUS_OK">
+  <parent>freeradius_auth</parent>
+  <regex offset="after_parent">Login OK: \[(\S+)\] \(from client (\S+) port (\d+) cli ([\w-]+)</regex>
+  <order>user, authenticator, port, mac_address</order>
+</decoder>
+
+<!-- Décodeur enfant: Login échoué avec extraction champs -->
+<decoder name="FREERADIUS_FAIL">
+  <parent>freeradius_auth_fail</parent>
+  <regex offset="after_parent">Login incorrect \(([^:]+): [^\]]+\): \[(\S+)[^\]]*\] \(from client (\S+) port (\d+) cli ([\w-]+)</regex>
+  <order>eap_method, user, authenticator, port, mac_address</order>
+</decoder>
+
+<!-- Décodeur: Erreur SQL FreeRADIUS -->
+<decoder name="freeradius_sql_error">
+  <prematch>rlm_sql</prematch>
+</decoder>
+
+<decoder name="freeradius_sql_error_detail">
+  <parent>freeradius_sql_error</parent>
+  <regex>ERROR: (.*)</regex>
+  <order>error_message</order>
+</decoder>
+
+<!-- Décodeur: Client inconnu FreeRADIUS -->
+<decoder name="freeradius_unknown_client">
+  <prematch>Ignoring request to auth address</prematch>
+</decoder>
+
+<decoder name="freeradius_unknown_client_detail">
+  <parent>freeradius_unknown_client</parent>
+  <regex>from unknown client (\S+) port (\d+)</regex>
+  <order>srcip, srcport</order>
+</decoder>
+
+<!--
+  ════════════════════════════════════════════════════════════════════
+  FAIL2BAN DECODERS
+  ════════════════════════════════════════════════════════════════════
+-->
+
+<!-- Décodeur parent Fail2Ban -->
+<decoder name="fail2ban">
+  <prematch>fail2ban</prematch>
+</decoder>
+
+<!-- Décodeur: Ban IP -->
+<decoder name="fail2ban_ban">
+  <parent>fail2ban</parent>
+  <regex>\[(\w+)\]\s+Ban (\d+\.\d+\.\d+\.\d+)</regex>
+  <order>jail, srcip</order>
+</decoder>
+
+<!-- Décodeur: Unban IP -->
+<decoder name="fail2ban_unban">
+  <parent>fail2ban</parent>
+  <regex>\[(\w+)\]\s+Unban (\d+\.\d+\.\d+\.\d+)</regex>
+  <order>jail, srcip</order>
+</decoder>
+
+<!-- Décodeur: Found IP (détection tentative) -->
+<decoder name="fail2ban_found">
+  <parent>fail2ban</parent>
+  <regex>\[(\w+)\]\s+Found (\d+\.\d+\.\d+\.\d+)</regex>
+  <order>jail, srcip</order>
+</decoder>
+
+<!--
+  ════════════════════════════════════════════════════════════════════
+  UFW DECODERS
+  ════════════════════════════════════════════════════════════════════
+-->
+
+<!-- Décodeur parent UFW -->
+<decoder name="ufw">
+  <prematch>\[UFW</prematch>
+</decoder>
+
+<!-- Décodeur: UFW BLOCK -->
+<decoder name="ufw_block">
+  <parent>ufw</parent>
+  <regex>\[UFW BLOCK\] IN=(\S*) OUT=(\S*) .*SRC=(\d+\.\d+\.\d+\.\d+) DST=(\d+\.\d+\.\d+\.\d+) .*PROTO=(\w+) SPT=(\d+) DPT=(\d+)</regex>
+  <order>interface_in, interface_out, srcip, dstip, protocol, srcport, dstport</order>
+</decoder>
+
+<!-- Décodeur: UFW ALLOW -->
+<decoder name="ufw_allow">
+  <parent>ufw</parent>
+  <regex>\[UFW ALLOW\] IN=(\S*) OUT=(\S*) .*SRC=(\d+\.\d+\.\d+\.\d+) DST=(\d+\.\d+\.\d+\.\d+) .*PROTO=(\w+) SPT=(\d+) DPT=(\d+)</regex>
+  <order>interface_in, interface_out, srcip, dstip, protocol, srcport, dstport</order>
+</decoder>
+
+<!-- Décodeur: UFW AUDIT (modification règles) -->
+<decoder name="ufw_audit">
+  <parent>ufw</parent>
+  <regex>\[UFW AUDIT\] (.+)</regex>
+  <order>action</order>
+</decoder>
+
+<!--
+  ════════════════════════════════════════════════════════════════════
+  SSH ENHANCED DECODERS (complément aux décodeurs par défaut)
+  ════════════════════════════════════════════════════════════════════
+-->
+
+<!-- Décodeur: Tentative connexion root (spécifique) -->
+<decoder name="sshd_root_attempt">
+  <parent>sshd</parent>
+  <prematch>Failed password for root</prematch>
+  <regex offset="after_parent">from (\S+) port (\d+)</regex>
+  <order>srcip, srcport</order>
+</decoder>
+
+<!-- Décodeur: Scan SSH (connexion immédiate) -->
+<decoder name="sshd_scan">
+  <parent>sshd</parent>
+  <prematch>Did not receive identification string</prematch>
+  <regex offset="after_parent">from (\S+) port (\d+)</regex>
+  <order>srcip, srcport</order>
+</decoder>

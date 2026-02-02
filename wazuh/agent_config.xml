@@ -1,0 +1,147 @@
+<!--
+  agent_config.xml - Configuration agent Wazuh pour SAE 5.01
+  
+  Monitore:
+  - FreeRADIUS: /var/log/freeradius/radius.log
+  - SSH: /var/log/auth.log
+  - UFW: /var/log/ufw.log
+  - Fail2Ban: /var/log/fail2ban.log
+  - Apache: /var/log/apache2/error.log
+  - MySQL: /var/log/mysql/error.log
+  - Syslog: /var/log/syslog
+  
+  À placer dans: /var/ossec/etc/ossec.conf (section <ossec_config>)
+-->
+
+<ossec_config>
+  <!-- Collecte logs FreeRADIUS -->
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/freeradius/radius.log</location>
+  </localfile>
+
+  <!-- Collecte logs SSH/Auth -->
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/auth.log</location>
+  </localfile>
+
+  <!-- Collecte logs UFW Firewall -->
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/ufw.log</location>
+  </localfile>
+
+  <!-- Collecte logs Fail2Ban -->
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/fail2ban.log</location>
+  </localfile>
+
+  <!-- Collecte logs Apache -->
+  <localfile>
+    <log_format>apache</log_format>
+    <location>/var/log/apache2/error.log</location>
+  </localfile>
+
+  <!-- Collecte logs MySQL -->
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/mysql/error.log</location>
+  </localfile>
+
+  <!-- Collecte logs système -->
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/syslog</location>
+  </localfile>
+
+  <!-- Monitore Active Response Wazuh -->
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/ossec/logs/active-responses.log</location>
+  </localfile>
+
+  <!-- File Integrity Monitoring (FIM) -->
+  <syscheck>
+    <disabled>no</disabled>
+    
+    <!-- Scan toutes les 12h -->
+    <frequency>43200</frequency>
+    
+    <!-- Monitoring temps-réel des fichiers critiques -->
+    <directories realtime="yes">/etc/freeradius/3.0</directories>
+    <directories realtime="yes">/etc/ssh/sshd_config</directories>
+    <directories realtime="yes">/etc/ufw</directories>
+    <directories realtime="yes">/etc/fail2ban</directories>
+    <directories realtime="yes">/var/www/html/php-admin</directories>
+    
+    <!-- Monitoring journalier /etc -->
+    <directories check_all="yes">/etc</directories>
+    
+    <!-- Ignorer fichiers temporaires -->
+    <ignore>/etc/.git</ignore>
+    <ignore type="sregex">.log$|.swp$</ignore>
+  </syscheck>
+
+  <!-- Détection rootkit -->
+  <rootcheck>
+    <disabled>no</disabled>
+    <frequency>43200</frequency>
+    <rootkit_files>/var/ossec/etc/rootcheck/rootkit_files.txt</rootkit_files>
+    <rootkit_trojans>/var/ossec/etc/rootcheck/rootkit_trojans.txt</rootkit_trojans>
+  </rootcheck>
+
+  <!-- Active Response (blocage IP) -->
+  <active-response>
+    <disabled>no</disabled>
+    
+    <!-- Bloquer IP après 5 échecs SSH -->
+    <command>firewall-drop</command>
+    <location>local</location>
+    <rules_id>5763</rules_id>
+    <timeout>600</timeout>
+  </active-response>
+
+  <active-response>
+    <disabled>no</disabled>
+    
+    <!-- Bloquer IP après 10 échecs RADIUS -->
+    <command>firewall-drop</command>
+    <location>local</location>
+    <rules_id>100805</rules_id>
+    <timeout>1800</timeout>
+  </active-response>
+
+  <!-- Vulnérabilités (Vulnerability Detector) -->
+  <vulnerability-detector>
+    <enabled>yes</enabled>
+    <interval>1d</interval>
+    <run_on_start>yes</run_on_start>
+
+    <!-- Ubuntu vulnerability database -->
+    <provider name="canonical">
+      <enabled>yes</enabled>
+      <os>focal</os>
+      <update_interval>1h</update_interval>
+    </provider>
+  </vulnerability-detector>
+
+  <!-- CIS Benchmarks -->
+  <wodle name="cis-cat">
+    <disabled>yes</disabled>
+    <!-- Activer si CIS-CAT installé -->
+  </wodle>
+
+  <!-- Configuration client (agent) -->
+  <client>
+    <server>
+      <address>192.168.10.100</address>
+      <port>1514</port>
+      <protocol>udp</protocol>
+    </server>
+    <notify_time>10</notify_time>
+    <time-reconnect>60</time-reconnect>
+    <auto_restart>yes</auto_restart>
+  </client>
+</ossec_config>

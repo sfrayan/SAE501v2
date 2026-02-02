@@ -1,0 +1,377 @@
+<!--
+  custom_rules.xml - Règles personnalisées SAE 5.01
+  
+  Règles IDs: 100000-101000
+  - 100800-100899: FreeRADIUS
+  - 100900-100999: Fail2Ban
+  - 101000-101099: UFW
+  - 101100-101199: SSH avancé
+  - 101200-101299: FIM (File Integrity Monitoring)
+  
+  À placer dans: /var/ossec/etc/rules/local_rules.xml (Manager Wazuh)
+-->
+
+<group name="custom,sae501">
+
+  <!--
+    ══════════════════════════════════════════════════════════════════
+    FREERADIUS RULES (100800-100899)
+    ══════════════════════════════════════════════════════════════════
+  -->
+
+  <!-- Rule 100800: Groupe parent FreeRADIUS Auth -->
+  <rule id="100800" level="0" noalert="1">
+    <decoded_as>freeradius_auth</decoded_as>
+    <description>FreeRADIUS authentication messages grouped.</description>
+  </rule>
+
+  <!-- Rule 100801: Groupe parent FreeRADIUS Auth Failed -->
+  <rule id="100801" level="0" noalert="1">
+    <decoded_as>freeradius_auth_fail</decoded_as>
+    <description>FreeRADIUS authentication failure messages grouped.</description>
+  </rule>
+
+  <!-- Rule 100802: Authentification RADIUS réussie (niveau informatif) -->
+  <rule id="100802" level="3">
+    <if_sid>100800</if_sid>
+    <decoded_as>FREERADIUS_OK</decoded_as>
+    <description>FreeRADIUS: Successful authentication for $(user) from $(authenticator) [MAC: $(mac_address)]</description>
+    <group>authentication_success,pci_dss_10.2.5,gpg13_7.1,gdpr_IV_32.2,</group>
+  </rule>
+
+  <!-- Rule 100803: Authentification RADIUS échouée (niveau avertissement) -->
+  <rule id="100803" level="5">
+    <if_sid>100801</if_sid>
+    <decoded_as>FREERADIUS_FAIL</decoded_as>
+    <description>FreeRADIUS: Failed authentication for $(user) from $(authenticator) [MAC: $(mac_address)]</description>
+    <group>authentication_failed,pci_dss_10.2.4,pci_dss_10.2.5,gpg13_7.1,gdpr_IV_35.7.d,gdpr_IV_32.2,</group>
+  </rule>
+
+  <!-- Rule 100804: Tentatives répétées échec auth RADIUS (5 fois en 2min) -->
+  <rule id="100804" level="8" frequency="5" timeframe="120">
+    <if_matched_sid>100803</if_matched_sid>
+    <same_source_ip />
+    <description>FreeRADIUS: Multiple authentication failures from $(srcip) - Possible brute force attack</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failures,pci_dss_11.4,pci_dss_10.2.4,pci_dss_10.2.5,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- Rule 100805: Attaque brute-force RADIUS sévère (10 fois en 5min) -->
+  <rule id="100805" level="10" frequency="10" timeframe="300">
+    <if_matched_sid>100803</if_matched_sid>
+    <same_source_ip />
+    <description>FreeRADIUS: CRITICAL - Brute force attack detected from $(srcip)</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failures,attack,pci_dss_11.4,pci_dss_10.2.4,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- Rule 100806: Erreur SQL FreeRADIUS (problème backend) -->
+  <rule id="100806" level="7">
+    <decoded_as>freeradius_sql_error_detail</decoded_as>
+    <description>FreeRADIUS: SQL error - $(error_message)</description>
+    <group>service_availability,pci_dss_10.6.1,</group>
+  </rule>
+
+  <!-- Rule 100807: Client inconnu tente de contacter RADIUS -->
+  <rule id="100807" level="8">
+    <decoded_as>freeradius_unknown_client_detail</decoded_as>
+    <description>FreeRADIUS: Unknown client $(srcip):$(srcport) attempted connection - Possible rogue access point</description>
+    <mitre>
+      <id>T1557</id>
+    </mitre>
+    <group>reconnaissance,pci_dss_11.4,</group>
+  </rule>
+
+  <!-- Rule 100808: Utilisateur inconnu tente auth RADIUS -->
+  <rule id="100808" level="6">
+    <if_sid>100803</if_sid>
+    <regex>Login incorrect \(User not found\)</regex>
+    <description>FreeRADIUS: Authentication attempt for non-existent user $(user) from $(authenticator)</description>
+    <group>authentication_failed,reconnaissance,</group>
+  </rule>
+
+  <!--
+    ══════════════════════════════════════════════════════════════════
+    FAIL2BAN RULES (100900-100999)
+    ══════════════════════════════════════════════════════════════════
+  -->
+
+  <!-- Rule 100900: Groupe parent Fail2Ban -->
+  <rule id="100900" level="0" noalert="1">
+    <decoded_as>fail2ban</decoded_as>
+    <description>Fail2Ban messages grouped.</description>
+  </rule>
+
+  <!-- Rule 100901: IP bannie par Fail2Ban -->
+  <rule id="100901" level="6">
+    <if_sid>100900</if_sid>
+    <decoded_as>fail2ban_ban</decoded_as>
+    <description>Fail2Ban: IP $(srcip) banned in jail [$(jail)]</description>
+    <group>active_response,pci_dss_11.4,</group>
+  </rule>
+
+  <!-- Rule 100902: IP débannie par Fail2Ban -->
+  <rule id="100902" level="3">
+    <if_sid>100900</if_sid>
+    <decoded_as>fail2ban_unban</decoded_as>
+    <description>Fail2Ban: IP $(srcip) unbanned from jail [$(jail)]</description>
+    <group>active_response,</group>
+  </rule>
+
+  <!-- Rule 100903: IP détectée par Fail2Ban (pre-ban) -->
+  <rule id="100903" level="4">
+    <if_sid>100900</if_sid>
+    <decoded_as>fail2ban_found</decoded_as>
+    <description>Fail2Ban: IP $(srcip) found in jail [$(jail)] - Suspicious activity detected</description>
+    <group>attack,</group>
+  </rule>
+
+  <!-- Rule 100904: Multiples bans même IP (attaquant persistant) -->
+  <rule id="100904" level="10" frequency="3" timeframe="3600">
+    <if_matched_sid>100901</if_matched_sid>
+    <same_source_ip />
+    <description>Fail2Ban: CRITICAL - IP $(srcip) banned multiple times - Persistent attacker</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>attack,multiple_attempts,</group>
+  </rule>
+
+  <!--
+    ══════════════════════════════════════════════════════════════════
+    UFW FIREWALL RULES (101000-101099)
+    ══════════════════════════════════════════════════════════════════
+  -->
+
+  <!-- Rule 101000: Groupe parent UFW -->
+  <rule id="101000" level="0" noalert="1">
+    <decoded_as>ufw</decoded_as>
+    <description>UFW firewall messages grouped.</description>
+  </rule>
+
+  <!-- Rule 101001: Connexion bloquée par UFW (niveau bas) -->
+  <rule id="101001" level="3">
+    <if_sid>101000</if_sid>
+    <decoded_as>ufw_block</decoded_as>
+    <description>UFW: Blocked connection from $(srcip):$(srcport) to $(dstip):$(dstport) [$(protocol)]</description>
+    <group>firewall_block,</group>
+  </rule>
+
+  <!-- Rule 101002: Connexion autorisée par UFW (informatif) -->
+  <rule id="101002" level="2">
+    <if_sid>101000</if_sid>
+    <decoded_as>ufw_allow</decoded_as>
+    <description>UFW: Allowed connection from $(srcip):$(srcport) to $(dstip):$(dstport) [$(protocol)]</description>
+    <group>firewall_allow,</group>
+  </rule>
+
+  <!-- Rule 101003: Scan de ports détecté (multiples ports bloqués) -->
+  <rule id="101003" level="8" frequency="10" timeframe="60">
+    <if_matched_sid>101001</if_matched_sid>
+    <same_source_ip />
+    <description>UFW: Port scan detected from $(srcip) - Multiple blocked connections</description>
+    <mitre>
+      <id>T1046</id>
+    </mitre>
+    <group>reconnaissance,port_scan,pci_dss_11.4,</group>
+  </rule>
+
+  <!-- Rule 101004: Tentative accès port MySQL externe (3306) -->
+  <rule id="101004" level="9">
+    <if_sid>101001</if_sid>
+    <field name="dstport">3306</field>
+    <description>UFW: ALERT - External MySQL connection attempt blocked from $(srcip)</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+    <group>attack,sql,pci_dss_11.4,</group>
+  </rule>
+
+  <!-- Rule 101005: Tentative accès RADIUS externe (non-LAN) -->
+  <rule id="101005" level="8">
+    <if_sid>101001</if_sid>
+    <field name="dstport">1812</field>
+    <description>UFW: RADIUS connection attempt blocked from $(srcip) - Possible rogue AP</description>
+    <mitre>
+      <id>T1557</id>
+    </mitre>
+    <group>attack,radius,pci_dss_11.4,</group>
+  </rule>
+
+  <!-- Rule 101006: Modification règles UFW (audit) -->
+  <rule id="101006" level="7">
+    <if_sid>101000</if_sid>
+    <decoded_as>ufw_audit</decoded_as>
+    <description>UFW: Firewall rules modified - $(action)</description>
+    <group>configuration_change,pci_dss_10.6.1,</group>
+  </rule>
+
+  <!--
+    ══════════════════════════════════════════════════════════════════
+    SSH ADVANCED RULES (101100-101199)
+    ══════════════════════════════════════════════════════════════════
+  -->
+
+  <!-- Rule 101100: Tentative connexion root SSH -->
+  <rule id="101100" level="8">
+    <if_sid>5716</if_sid>
+    <decoded_as>sshd_root_attempt</decoded_as>
+    <description>SSH: Root login attempt from $(srcip):$(srcport) - CRITICAL VIOLATION</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>authentication_failed,pci_dss_10.2.4,pci_dss_10.2.5,</group>
+  </rule>
+
+  <!-- Rule 101101: Scan SSH (connexion sans identification) -->
+  <rule id="101101" level="6">
+    <if_sid>5700</if_sid>
+    <decoded_as>sshd_scan</decoded_as>
+    <description>SSH: Scan detected from $(srcip):$(srcport) - No identification string</description>
+    <mitre>
+      <id>T1046</id>
+    </mitre>
+    <group>reconnaissance,</group>
+  </rule>
+
+  <!-- Rule 101102: SSH connexion réussie depuis IP externe (hors LAN) -->
+  <rule id="101102" level="5">
+    <if_sid>5715</if_sid>
+    <srcip>!192.168.10.0/24</srcip>
+    <description>SSH: Successful login from external IP $(srcip) - Verify legitimacy</description>
+    <group>authentication_success,external_access,</group>
+  </rule>
+
+  <!--
+    ══════════════════════════════════════════════════════════════════
+    FILE INTEGRITY MONITORING (101200-101299)
+    ══════════════════════════════════════════════════════════════════
+  -->
+
+  <!-- Rule 101200: Modification fichier config FreeRADIUS -->
+  <rule id="101200" level="8">
+    <if_sid>550</if_sid>
+    <field name="file">/etc/freeradius/3.0</field>
+    <description>FIM: FreeRADIUS configuration file modified - $(file)</description>
+    <group>syscheck,pci_dss_11.5,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- Rule 101201: Modification sshd_config -->
+  <rule id="101201" level="9">
+    <if_sid>550</if_sid>
+    <field name="file">/etc/ssh/sshd_config</field>
+    <description>FIM: SSH configuration modified - $(file) - IMMEDIATE REVIEW REQUIRED</description>
+    <group>syscheck,pci_dss_11.5,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- Rule 101202: Modification règles UFW -->
+  <rule id="101202" level="8">
+    <if_sid>550</if_sid>
+    <field name="file">/etc/ufw</field>
+    <description>FIM: UFW firewall rules modified - $(file)</description>
+    <group>syscheck,pci_dss_11.5,</group>
+  </rule>
+
+  <!-- Rule 101203: Modification config Fail2Ban -->
+  <rule id="101203" level="7">
+    <if_sid>550</if_sid>
+    <field name="file">/etc/fail2ban</field>
+    <description>FIM: Fail2Ban configuration modified - $(file)</description>
+    <group>syscheck,pci_dss_11.5,</group>
+  </rule>
+
+  <!-- Rule 101204: Modification fichiers PHP-Admin -->
+  <rule id="101204" level="7">
+    <if_sid>550</if_sid>
+    <field name="file">/var/www/html/php-admin</field>
+    <description>FIM: PHP-Admin file modified - $(file) - Check for web shell</description>
+    <group>syscheck,web,</group>
+  </rule>
+
+  <!-- Rule 101205: Suppression fichier critique -->
+  <rule id="101205" level="10">
+    <if_sid>553</if_sid>
+    <field name="file">/etc/freeradius|/etc/ssh|/etc/ufw|/etc/fail2ban</field>
+    <description>FIM: CRITICAL - System configuration file deleted - $(file)</description>
+    <group>syscheck,attack,pci_dss_11.5,</group>
+  </rule>
+
+  <!--
+    ══════════════════════════════════════════════════════════════════
+    ACTIVE RESPONSE RULES (101300-101399)
+    ══════════════════════════════════════════════════════════════════
+  -->
+
+  <!-- Rule 101300: Active Response exécuté -->
+  <rule id="101300" level="5">
+    <if_sid>600</if_sid>
+    <match>active-response/bin/firewall-drop</match>
+    <description>Active Response: IP $(srcip) blocked by firewall-drop command</description>
+    <group>active_response,</group>
+  </rule>
+
+  <!-- Rule 101301: Active Response échec -->
+  <rule id="101301" level="8">
+    <if_sid>601</if_sid>
+    <description>Active Response: FAILED to execute command - $(command)</description>
+    <group>active_response,error,</group>
+  </rule>
+
+  <!--
+    ══════════════════════════════════════════════════════════════════
+    APACHE WEB SERVER (101400-101499)
+    ══════════════════════════════════════════════════════════════════
+  -->
+
+  <!-- Rule 101400: Tentative accès répertoire sensible -->
+  <rule id="101400" level="7">
+    <if_sid>30100</if_sid>
+    <url>/phpmyadmin|/.env|/admin|/wp-admin</url>
+    <description>Apache: Attempt to access sensitive directory from $(srcip) - $(url)</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+    <group>web,attack,</group>
+  </rule>
+
+  <!-- Rule 101401: Erreur 404 répétées (scan web) -->
+  <rule id="101401" level="8" frequency="10" timeframe="60">
+    <if_sid>30100</if_sid>
+    <same_source_ip />
+    <description>Apache: Web scan detected from $(srcip) - Multiple 404 errors</description>
+    <mitre>
+      <id>T1046</id>
+    </mitre>
+    <group>web,reconnaissance,</group>
+  </rule>
+
+  <!--
+    ══════════════════════════════════════════════════════════════════
+    MYSQL DATABASE (101500-101599)
+    ══════════════════════════════════════════════════════════════════
+  -->
+
+  <!-- Rule 101500: Erreur connexion MySQL -->
+  <rule id="101500" level="6">
+    <if_sid>3500</if_sid>
+    <match>Access denied for user</match>
+    <description>MySQL: Authentication failed for $(user)@$(srcip)</description>
+    <group>authentication_failed,sql,</group>
+  </rule>
+
+  <!-- Rule 101501: Tentatives connexion MySQL répétées -->
+  <rule id="101501" level="9" frequency="5" timeframe="120">
+    <if_matched_sid>101500</if_matched_sid>
+    <same_source_ip />
+    <description>MySQL: Multiple authentication failures from $(srcip) - Possible brute force</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failures,sql,attack,</group>
+  </rule>
+
+</group>
