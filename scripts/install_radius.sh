@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # install_radius.sh - Installation complète FreeRADIUS + MySQL
-# VERSION SIMPLIFIÉE SANS GROUPES - 2 février 2026
+# VERSION AVEC GROUPES - 3 février 2026
 #
 
 set -e
@@ -11,7 +11,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FR_CONF="/etc/freeradius/3.0"
 
 echo "──────────────────────────────────────"
-echo "🚀 Installation FreeRADIUS + MySQL (SANS GROUPES)"
+echo "🚀 Installation FreeRADIUS + MySQL (AVEC GROUPES)"
 echo "──────────────────────────────────────"
 
 # Vérifier root
@@ -56,10 +56,11 @@ else
   exit 1
 fi
 
-# 5. Création tables (VERSION SANS GROUPES)
-echo "[5/14] Création des tables (VERSION SIMPLIFIÉE)..."
+# 5. Création tables (VERSION AVEC GROUPES)
+echo "[5/14] Création des tables (VERSION AVEC GROUPES)..."
 if [ -f "$PROJECT_ROOT/radius/sql/create_tables.sql" ]; then
   mysql -u root radius < "$PROJECT_ROOT/radius/sql/create_tables.sql"
+  echo "  ✅ Tables de groupes créées: radusergroup, radgroupcheck, radgroupreply"
 else
   echo "❌ Fichier create_tables.sql introuvable"
   exit 1
@@ -83,8 +84,8 @@ if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
   chown root:freerad "$FR_CONF/users"
 fi
 
-# 8. Configuration SQL module (SANS GROUPES - VERSION MINIMALISTE)
-echo "[8/14] Configuration module SQL (SANS GROUPES)..."
+# 8. Configuration SQL module (AVEC GROUPES - VERSION COMPLÈTE)
+echo "[8/14] Configuration module SQL (AVEC GROUPES)..."
 cat > "$FR_CONF/mods-available/sql" <<'EOF'
 sql {
     driver = "rlm_sql_mysql"
@@ -97,18 +98,20 @@ sql {
     
     radius_db = "radius"
     
-    # Tables principales (authentification seulement)
+    # Tables principales
     acct_table1 = "radacct"
     acct_table2 = "radacct"
     postauth_table = "radpostauth"
     authcheck_table = "radcheck"
     authreply_table = "radreply"
     
-    # ❌ TABLES DE GROUPES DÉSACTIVÉES
-    # Ces lignes sont commentées pour éviter les warnings
-    # groupcheck_table = "radgroupcheck"
-    # groupreply_table = "radgroupreply"
-    # usergroup_table = "radusergroup"
+    # ✅ TABLES DE GROUPES ACTIVÉES
+    groupcheck_table = "radgroupcheck"
+    groupreply_table = "radgroupreply"
+    usergroup_table = "radusergroup"
+    
+    # ✅ ACTIVATION DE LA LECTURE DES GROUPES
+    read_groups = yes
     
     read_clients = yes
     client_table = "nas"
@@ -122,6 +125,9 @@ sql {
         lifetime = 0
         idle_timeout = 60
     }
+    
+    # Inclusion des requêtes SQL
+    $INCLUDE ${modconfdir}/${.:name}/main/${dialect}/queries.conf
 }
 EOF
 
@@ -131,7 +137,7 @@ chown root:freerad "$FR_CONF/mods-available/sql"
 # Activer module SQL
 ln -sf ../mods-available/sql "$FR_CONF/mods-enabled/sql" 2>/dev/null || true
 
-echo "  ✅ Module SQL configuré SANS système de groupes"
+echo "  ✅ Module SQL configuré AVEC système de groupes"
 
 # 9. Configuration module LINELOG pour logging détaillé
 echo "[9/14] Configuration logging détaillé..."
@@ -259,11 +265,13 @@ systemctl status freeradius --no-pager
 
 echo ""
 echo "──────────────────────────────────────"
-echo "✅ Installation FreeRADIUS terminée (VERSION SIMPLIFIÉE)"
+echo "✅ Installation FreeRADIUS terminée (VERSION AVEC GROUPES)"
 echo ""
 echo "📋 CORRECTIONS APPLIQUÉES:"
-echo "  ✅ Système de groupes complètement désactivé"
-echo "  ✅ Authentification directe utilisateur uniquement"
+echo "  ✅ Système de groupes complètement activé"
+echo "  ✅ Tables radusergroup, radgroupcheck, radgroupreply créées"
+echo "  ✅ read_groups = yes activé dans module SQL"
+echo "  ✅ Fichier queries.conf inclus automatiquement"
 echo "  ✅ Fichier de log créé avec permissions correctes"
 echo "  ✅ Utilisateur www-data ajouté au groupe freerad"
 echo "  ✅ PLUS AUCUN WARNING sur group_membership_query"
@@ -273,11 +281,17 @@ echo "  systemctl status freeradius"
 echo "  sudo freeradius -X                    # Mode debug"
 echo "  radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123"
 echo "  tail -f /var/log/freeradius/radius.log"
+echo "  mysql -u radius_app -pRadiusAppPass!2026 radius -e 'SELECT * FROM v_users_with_groups;'"
 echo ""
 echo "🔐 Identifiants MySQL:"
 echo "  Base: radius"
 echo "  User: radius_app"
 echo "  Pass: RadiusAppPass!2026"
+echo ""
+echo "👥 Groupes configurés:"
+echo "  - staff (8h session, 30min idle)"
+echo "  - manager (12h session, 1h idle)"
+echo "  - guest (2h session, 15min idle)"
 echo ""
 echo "✅ Logging détaillé activé dans /var/log/freeradius/radius.log"
 echo "✅ Interface web peut maintenant afficher les logs"
