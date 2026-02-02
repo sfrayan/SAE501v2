@@ -9,6 +9,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# IP STATIQUE DU SERVEUR
+SERVER_IP="192.168.10.100"
+
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🛡️  Installation Wazuh Manager (lightweight)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -278,9 +281,6 @@ if command -v ufw >/dev/null 2>&1; then
   ufw reload > /dev/null 2>&1
 fi
 
-# Obtenir IP
-IP=$(hostname -I | awk '{print $1}')
-
 # Fichier d'informations
 cat > /root/wazuh-info.txt <<EOF
 ╔════════════════════════════════════════╗
@@ -288,7 +288,7 @@ cat > /root/wazuh-info.txt <<EOF
 ╚════════════════════════════════════════╝
 
 📊 Status Wazuh Manager:
-  IP: $IP
+  IP: $SERVER_IP (statique)
   Port Agent: 1514/tcp
   Port Syslog: 514/udp
 
