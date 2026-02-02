@@ -375,18 +375,11 @@ check_files() {
 check_connectivity() {
     header "CONNECTIVITÉ"
     
-    # Ping gateway
-    if ping -c 1 -W 2 192.168.10.254 &>/dev/null; then
-        pass "Ping gateway (192.168.10.254) OK"
-    else
-        warn "Ping gateway échoué"
-    fi
-    
-    # Ping router TL-MR100
+    # Ping router TL-MR100 (gateway)
     if ping -c 1 -W 2 192.168.10.1 &>/dev/null; then
-        pass "Ping router TL-MR100 (192.168.10.1) OK"
+        pass "Ping routeur TP-Link (192.168.10.1) OK"
     else
-        warn "Ping router TL-MR100 échoué (potentiellement éteint)"
+        warn "Ping routeur TP-Link échoué (vérifier câble RJ45)"
     fi
     
     # Ping DNS externe
