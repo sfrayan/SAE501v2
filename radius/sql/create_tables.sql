@@ -276,6 +276,17 @@ ORDER BY acctstarttime DESC;
 -- TRIGGERS (Audit automatique)
 -- ============================================
 
+-- Supprimer les triggers existants si présents
+DROP TRIGGER IF EXISTS tr_radcheck_insert;
+DROP TRIGGER IF EXISTS tr_radcheck_update;
+DROP TRIGGER IF EXISTS tr_radcheck_delete;
+DROP TRIGGER IF EXISTS tr_radreply_insert;
+DROP TRIGGER IF EXISTS tr_radreply_update;
+DROP TRIGGER IF EXISTS tr_radreply_delete;
+DROP TRIGGER IF EXISTS tr_radusergroup_insert;
+DROP TRIGGER IF EXISTS tr_radusergroup_update;
+DROP TRIGGER IF EXISTS tr_radusergroup_delete;
+
 -- Trigger: Insert audit radcheck
 DELIMITER //
 CREATE TRIGGER tr_radcheck_insert AFTER INSERT ON radcheck
