@@ -23,7 +23,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 1. Installation prérequis
-echo "[1/8] Installation prérequis..."
+echo "[1/9] Installation prérequis..."
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   gnupg \
@@ -34,18 +34,18 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   > /dev/null 2>&1
 
 # 2. Ajout dépôt Wazuh
-echo "[2/8] Configuration dépôt Wazuh..."
+echo "[2/9] Configuration dépôt Wazuh..."
 curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import > /dev/null 2>&1
 chmod 644 /usr/share/keyrings/wazuh.gpg
 echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" > /etc/apt/sources.list.d/wazuh.list
 apt-get update -qq
 
 # 3. Installation Wazuh Manager
-echo "[3/8] Installation Wazuh Manager..."
+echo "[3/9] Installation Wazuh Manager..."
 WAZUH_MANAGER="wazuh-manager" apt-get install -y wazuh-manager > /dev/null 2>&1
 
 # 4. Configuration rsyslog pour réception logs
-echo "[4/8] Configuration rsyslog..."
+echo "[4/9] Configuration rsyslog..."
 cat > /etc/rsyslog.d/10-wazuh-input.conf <<'EOF'
 # Module UDP pour réception syslog
 module(load="imudp")
@@ -107,7 +107,7 @@ EOF
 systemctl restart rsyslog
 
 # 5. Configuration Wazuh Manager minimale
-echo "[5/8] Configuration Wazuh Manager..."
+echo "[5/9] Configuration Wazuh Manager..."
 cat > /var/ossec/etc/ossec.conf <<'EOF'
 <ossec_config>
   <global>
@@ -158,9 +158,6 @@ cat > /var/ossec/etc/ossec.conf <<'EOF'
     <queue_size>131072</queue_size>
   </remote>
 
-  <!-- Désactiver csyslogd (pas nécessaire) -->
-  <csyslogd>no</csyslogd>
-
   <ruleset>
     <decoder_dir>ruleset/decoders</decoder_dir>
     <rule_dir>ruleset/rules</rule_dir>
@@ -203,7 +200,7 @@ chown root:wazuh /var/ossec/etc/ossec.conf
 chmod 640 /var/ossec/etc/ossec.conf
 
 # 6. Règles personnalisées
-echo "[6/8] Configuration règles personnalisées..."
+echo "[6/9] Configuration règles personnalisées..."
 cat > /var/ossec/etc/rules/local_rules.xml <<'EOF'
 <group name="local,syslog,radius,">
 
@@ -251,8 +248,16 @@ EOF
 chown root:wazuh /var/ossec/etc/rules/local_rules.xml
 chmod 640 /var/ossec/etc/rules/local_rules.xml
 
-# 7. Démarrage Wazuh Manager
-echo "[7/8] Démarrage Wazuh Manager..."
+# 7. Désactiver wazuh-csyslogd dans systemd (CRITIQUE)
+echo "[7/9] Désactivation wazuh-csyslogd..."
+if [ -f /var/ossec/bin/wazuh-csyslogd ]; then
+  # Renommer l'exécutable pour empêcher son lancement
+  mv /var/ossec/bin/wazuh-csyslogd /var/ossec/bin/wazuh-csyslogd.disabled
+  echo "✅ wazuh-csyslogd désactivé"
+fi
+
+# 8. Démarrage Wazuh Manager
+echo "[8/9] Démarrage Wazuh Manager..."
 systemctl daemon-reload
 systemctl enable wazuh-manager > /dev/null 2>&1
 systemctl restart wazuh-manager
@@ -265,11 +270,12 @@ else
   echo "⚠️  Problème démarrage Wazuh Manager"
   echo "Logs d'erreur:"
   tail -20 /var/ossec/logs/ossec.log
+  journalctl -xeu wazuh-manager.service | tail -20
   exit 1
 fi
 
-# 8. Configuration firewall
-echo "[8/8] Configuration pare-feu..."
+# 9. Configuration firewall
+echo "[9/9] Configuration pare-feu..."
 if command -v ufw >/dev/null 2>&1; then
   ufw --force enable > /dev/null 2>&1
   ufw allow 22/tcp comment 'SSH' > /dev/null 2>&1
