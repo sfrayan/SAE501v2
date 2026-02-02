@@ -20,7 +20,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 1. Installation paquets
-echo "[1/14] Installation paquets..."
+echo "[1/15] Installation paquets..."
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   freeradius \
@@ -31,12 +31,12 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   > /dev/null 2>&1
 
 # 2. Démarrage MySQL
-echo "[2/14] Configuration MySQL..."
+echo "[2/15] Configuration MySQL..."
 systemctl enable mariadb > /dev/null 2>&1
 systemctl start mariadb
 
 # 3. Sécurisation MySQL
-echo "[3/14] Sécurisation MySQL..."
+echo "[3/15] Sécurisation MySQL..."
 mysql -u root -e "
   DELETE FROM mysql.user WHERE User='';
   DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
@@ -46,7 +46,7 @@ mysql -u root -e "
 " 2>/dev/null || true
 
 # 4. Création base et utilisateur
-echo "[4/14] Création base de données RADIUS..."
+echo "[4/15] Création base de données RADIUS..."
 if [ -f "$PROJECT_ROOT/radius/sql/init_appuser.sql" ]; then
   mysql -u root < "$PROJECT_ROOT/radius/sql/init_appuser.sql"
 else
@@ -55,7 +55,7 @@ else
 fi
 
 # 5. Création tables (SANS GROUPES)
-echo "[5/14] Création des tables (SIMPLE - SANS GROUPES)..."
+echo "[5/15] Création des tables (SIMPLE - SANS GROUPES)..."
 if [ -f "$PROJECT_ROOT/radius/sql/create_tables.sql" ]; then
   mysql -u root radius < "$PROJECT_ROOT/radius/sql/create_tables.sql"
   echo "  ✅ Tables créées: nas, radcheck, radreply, radacct, radpostauth"
@@ -65,7 +65,7 @@ else
 fi
 
 # 6. Configuration FreeRADIUS - clients.conf
-echo "[6/14] Configuration clients RADIUS..."
+echo "[6/15] Configuration clients RADIUS..."
 if [ -f "$PROJECT_ROOT/radius/clients.conf" ]; then
   cp "$FR_CONF/clients.conf" "$FR_CONF/clients.conf.backup" 2>/dev/null || true
   cp "$PROJECT_ROOT/radius/clients.conf" "$FR_CONF/clients.conf"
@@ -74,7 +74,7 @@ if [ -f "$PROJECT_ROOT/radius/clients.conf" ]; then
 fi
 
 # 7. Configuration FreeRADIUS - users
-echo "[7/14] Configuration users..."
+echo "[7/15] Configuration users..."
 if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
   cp "$FR_CONF/users" "$FR_CONF/users.backup" 2>/dev/null || true
   cp "$PROJECT_ROOT/radius/users.txt" "$FR_CONF/users"
@@ -83,7 +83,7 @@ if [ -f "$PROJECT_ROOT/radius/users.txt" ]; then
 fi
 
 # 8. Configuration SQL module (SANS GROUPES - CLÉ DE LA SOLUTION)
-echo "[8/14] Configuration module SQL (SANS GROUPES)..."
+echo "[8/15] Configuration module SQL (SANS GROUPES)..."
 cat > "$FR_CONF/mods-available/sql" <<'EOF'
 sql {
     driver = "rlm_sql_mysql"
@@ -136,7 +136,7 @@ echo "  ✅ Module SQL configuré SANS système de groupes"
 echo "  ✅ read_groups = no (pas de warnings)"
 
 # 9. Configuration module LINELOG pour logging
-echo "[9/14] Configuration logging..."
+echo "[9/15] Configuration logging..."
 cat > "$FR_CONF/mods-available/linelog" <<'EOF'
 linelog {
     filename = "/var/log/freeradius/radius.log"
@@ -164,8 +164,29 @@ if ! groups www-data 2>/dev/null | grep -q freerad; then
     echo "  ✅ www-data ajouté au groupe freerad"
 fi
 
+# 9bis. ✨ CORRECTIF: Activer les logs d'authentification dans radiusd.conf
+echo "[9bis/15] Activation logs d'authentification dans radiusd.conf..."
+RADIUSD_CONF="$FR_CONF/radiusd.conf"
+
+if [ -f "$RADIUSD_CONF" ]; then
+    # Backup
+    cp "$RADIUSD_CONF" "${RADIUSD_CONF}.backup" 2>/dev/null || true
+    
+    # Activer auth = yes, auth_badpass = yes, auth_goodpass = yes
+    sed -i '/^\s*auth\s*=/ s/=.*/= yes/' "$RADIUSD_CONF"
+    sed -i '/^\s*auth_badpass\s*=/ s/=.*/= yes/' "$RADIUSD_CONF"
+    sed -i '/^\s*auth_goodpass\s*=/ s/=.*/= yes/' "$RADIUSD_CONF"
+    
+    echo "  ✅ Logs d'authentification activés:"
+    echo "     auth = yes (toutes les authentifications)"
+    echo "     auth_badpass = yes (échecs)"
+    echo "     auth_goodpass = yes (succès)"
+else
+    echo "  ⚠️  radiusd.conf introuvable, logs par défaut"
+fi
+
 # 10. Configurer logrotate
-echo "[10/14] Configuration logrotate..."
+echo "[10/15] Configuration logrotate..."
 cat > /etc/logrotate.d/freeradius <<'LOGROTATE'
 /var/log/freeradius/radius.log {
     daily
@@ -182,7 +203,7 @@ cat > /etc/logrotate.d/freeradius <<'LOGROTATE'
 LOGROTATE
 
 # 11. Activer linelog dans sites
-echo "[11/14] Activation linelog..."
+echo "[11/15] Activation linelog..."
 if ! grep -q "^[[:space:]]*linelog" "$FR_CONF/sites-available/default"; then
     sed -i '/^post-auth {$/a\        linelog' "$FR_CONF/sites-available/default"
 fi
@@ -192,7 +213,7 @@ if ! grep -q "^[[:space:]]*linelog" "$FR_CONF/sites-available/inner-tunnel"; the
 fi
 
 # 12. Génération certificats TLS
-echo "[12/14] Génération certificats TLS..."
+echo "[12/15] Génération certificats TLS..."
 cd "$FR_CONF/certs"
 
 sed -i 's/default_days\s*=.*/default_days = 3650/' ca.cnf 2>/dev/null || true
@@ -210,7 +231,7 @@ cd - > /dev/null
 ln -sf ../mods-available/eap "$FR_CONF/mods-enabled/eap" 2>/dev/null || true
 
 # 13. Permissions finales
-echo "[13/14] Configuration permissions..."
+echo "[13/15] Configuration permissions..."
 chown -R root:freerad "$FR_CONF"
 chmod -R 750 "$FR_CONF"
 chmod 640 "$FR_CONF/clients.conf" 2>/dev/null || true
@@ -229,7 +250,7 @@ fi
 
 # 14. Démarrage service
 echo "──────────────────────────────────────"
-echo "[14/14] Démarrage FreeRADIUS..."
+echo "[14/15] Démarrage FreeRADIUS..."
 systemctl enable freeradius > /dev/null 2>&1
 systemctl restart freeradius
 
@@ -259,6 +280,7 @@ echo "  ✅ Pas de groupes - tous les users ont les mêmes droits"
 echo "  ✅ Fitness-Pro = authentification RADIUS"
 echo "  ✅ Fitness-Guest = WPA2-PSK (pas RADIUS)"
 echo "  ✅ read_groups = no → AUCUN WARNING"
+echo "  ✅ Logs d'authentification activés dans radiusd.conf"
 echo ""
 echo "📝 Commandes:"
 echo "  systemctl status freeradius"
