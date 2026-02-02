@@ -3,11 +3,11 @@
 --
 -- Fichier: radius/sql/create_tables.sql
 -- Auteur: GroupeNani
--- Date: 4 janvier 2026
+-- Date: 2 février 2026 (corrigé)
 --
 -- Description:
 --   Crée le schéma complet pour FreeRADIUS avec MySQL.
---   Tables: radcheck, radreply, radusergroup, radgroupcheck, radgroupreply,
+--   Tables: nas, radcheck, radreply, radusergroup, radgroupcheck, radgroupreply,
 --           radacct, radpostauth, radaudit
 --
 -- Prérequis:
@@ -19,6 +19,31 @@
 --
 
 USE radius;
+
+-- ============================================
+-- 0. TABLE: nas (CLIENTS RADIUS)
+-- ============================================
+-- Définition des clients RADIUS (routeurs, APs, etc.)
+-- Cette table est CRUCIALE pour l'authentification
+
+CREATE TABLE IF NOT EXISTS nas (
+  id int(11) unsigned NOT NULL auto_increment,
+  nasname varchar(128) NOT NULL default '',
+  shortname varchar(32) default NULL,
+  type varchar(30) default 'other',
+  ports int(5) default NULL,
+  secret varchar(60) NOT NULL default 'SECRET',
+  server varchar(64) default NULL,
+  community varchar(50) default NULL,
+  description varchar(200) default 'RADIUS Client',
+  PRIMARY KEY  (id),
+  KEY nasname (nasname),
+  KEY shortname (shortname)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Insérer le routeur TL-MR100
+INSERT IGNORE INTO nas (nasname, shortname, type, secret, description) VALUES
+  ('192.168.10.1', 'TL-MR100', 'other', 'testing123', 'Routeur TP-Link TL-MR100');
 
 -- ============================================
 -- 1. TABLE: radcheck
