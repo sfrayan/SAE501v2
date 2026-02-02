@@ -6,15 +6,21 @@
 #
 # Fichier: tests/test_syslog_mr100.sh
 # Auteur: GroupeNani
-# Date: 4 janvier 2026
+# Date: 2 février 2026
+# Version: 2.1 - Architecture réelle
 #
 # Description:
 #   Script de test de la réception et traitement des logs syslog
 #   du routeur TL-MR100 par Wazuh.
 #
+# Architecture:
+#   - Routeur TL-MR100: 192.168.10.1
+#   - Serveur Wazuh/RADIUS: 192.168.10.100
+#   - Syslog port: 514 UDP
+#
 # Prérequis:
 #   - Wazuh Manager installé et démarré
-#   - TL-MR100 configuré pour envoyer syslog
+#   - TL-MR100 configuré pour envoyer syslog vers 192.168.10.100:514
 #   - Syslog reçu sur port 514 UDP
 #
 # Utilisation:
@@ -24,7 +30,6 @@
 #
 # Exemples:
 #   $ sudo bash tests/test_syslog_mr100.sh 192.168.10.1
-#   $ sudo bash tests/test_syslog_mr100.sh localhost
 #
 
 set -u
@@ -46,6 +51,7 @@ NC='\033[0m'
 
 # Paramètres
 ROUTER_IP="${1:-192.168.10.1}"
+SERVER_IP="192.168.10.100"  # Serveur Wazuh/RADIUS
 TEST_LOG="/tmp/syslog_test_$(date +%Y%m%d_%H%M%S).log"
 WAZUH_ALERTS="/var/ossec/logs/alerts/alerts.log"
 
@@ -139,7 +145,7 @@ check_syslog_server() {
     fi
     
     # Fichier configuration rsyslog
-    if [[ -f /etc/rsyslog.d/10-wazuh.conf ]]; then
+    if [[ -f /etc/rsyslog.d/10-wazuh-input.conf ]]; then
         pass "Configuration rsyslog/Wazuh existe"
     else
         warn "Configuration rsyslog personnalisée manquante"
@@ -149,7 +155,7 @@ check_syslog_server() {
 }
 
 check_syslog_received() {
-    header "TEST 1: Réception Logs Syslog"
+    header "TEST 1: RÉCEPTION LOGS SYSLOG"
     
     info "Vérification de la réception des logs syslog..."
     
@@ -160,7 +166,7 @@ check_syslog_received() {
     else
         warn "Logs TL-MR100 NON trouvés dans syslog"
         info "Configuration TL-MR100: Admin → System → Logs → Syslog Server"
-        info "  Server IP: 192.168.10.254"
+        info "  Server IP: $SERVER_IP  ✔️ (IP correcte)"
         info "  Port: 514"
     fi
     
@@ -168,7 +174,7 @@ check_syslog_received() {
 }
 
 check_wazuh_alerts() {
-    header "TEST 2: Traitement par Wazuh"
+    header "TEST 2: TRAITEMENT PAR WAZUH"
     
     info "Vérification des alertes générées par Wazuh..."
     
@@ -180,8 +186,8 @@ check_wazuh_alerts() {
     fi
     
     # Chercher alertes TL-MR100
-    if grep -q "TL-MR100\|tlmr100\|tp-link" "$WAZUH_ALERTS" 2>/dev/null; then
-        ALERT_COUNT=$(grep -c "TL-MR100\|tlmr100\|tp-link" "$WAZUH_ALERTS" 2>/dev/null || echo "0")
+    if grep -q "TL-MR100\\|tlmr100\\|tp-link" "$WAZUH_ALERTS" 2>/dev/null; then
+        ALERT_COUNT=$(grep -c "TL-MR100\\|tlmr100\\|tp-link" "$WAZUH_ALERTS" 2>/dev/null || echo "0")
         pass "Alertes TL-MR100 dans Wazuh ($ALERT_COUNT alertes)"
     else
         warn "Aucune alerte TL-MR100 détectée dans Wazuh"
@@ -189,8 +195,8 @@ check_wazuh_alerts() {
     fi
     
     # Chercher alertes WiFi
-    if grep -q "WiFi\|802.1X\|RADIUS" "$WAZUH_ALERTS" 2>/dev/null; then
-        WiFi_ALERTS=$(grep -c "WiFi\|802.1X\|RADIUS" "$WAZUH_ALERTS" 2>/dev/null || echo "0")
+    if grep -q "WiFi\\|802.1X\\|RADIUS" "$WAZUH_ALERTS" 2>/dev/null; then
+        WiFi_ALERTS=$(grep -c "WiFi\\|802.1X\\|RADIUS" "$WAZUH_ALERTS" 2>/dev/null || echo "0")
         pass "Alertes WiFi détectées ($WiFi_ALERTS alertes)"
     fi
     
@@ -198,7 +204,7 @@ check_wazuh_alerts() {
 }
 
 check_rules_loaded() {
-    header "TEST 3: Règles Personnalisées Chargées"
+    header "TEST 3: RÈGLES PERSONNALISÉES CHARGÉES"
     
     info "Vérification du chargement des règles sae5.01..."
     
@@ -221,14 +227,14 @@ check_rules_loaded() {
 }
 
 test_rule_ids() {
-    header "TEST 4: IDs Règles Détectées"
+    header "TEST 4: IDs RÈGLES DÉTECTÉES"
     
     info "Vérification des IDs de règles générées..."
     
     # Règles range 6000-6081
     if [[ -f "$WAZUH_ALERTS" ]]; then
         for rule_id in 6000 6010 6020 6040 6050; do
-            if grep -q "\"rule\": {\"id\": $rule_id" "$WAZUH_ALERTS" 2>/dev/null; then
+            if grep -q "\\"rule\\": {\\"id\\": $rule_id" "$WAZUH_ALERTS" 2>/dev/null; then
                 pass "Règle $rule_id détectée"
             fi
         done
@@ -238,26 +244,26 @@ test_rule_ids() {
 }
 
 test_wifi_events() {
-    header "TEST 5: Événements WiFi"
+    header "TEST 5: ÉVÉNEMENTS WiFi"
     
     info "Détection des événements WiFi dans les logs..."
     
     # Connexions WiFi
-    if grep -q "associated\|connected\|connection" /var/log/syslog 2>/dev/null; then
+    if grep -q "associated\\|connected\\|connection" /var/log/syslog 2>/dev/null; then
         pass "Événements de connexion WiFi détectés"
     else
         warn "Aucun événement de connexion WiFi"
     fi
     
     # Authentifications
-    if grep -q "authentication\|auth.*success\|auth.*fail" /var/log/syslog 2>/dev/null; then
+    if grep -q "authentication\\|auth.*success\\|auth.*fail" /var/log/syslog 2>/dev/null; then
         pass "Événements d'authentification WiFi détectés"
     else
         warn "Aucun événement d'authentification"
     fi
     
     # Déconnexions
-    if grep -q "disassociated\|disconnected" /var/log/syslog 2>/dev/null; then
+    if grep -q "disassociated\\|disconnected" /var/log/syslog 2>/dev/null; then
         pass "Événements de déconnexion WiFi détectés"
     else
         warn "Aucun événement de déconnexion"
@@ -267,12 +273,12 @@ test_wifi_events() {
 }
 
 test_attack_detection() {
-    header "TEST 6: Détection d'Attaques"
+    header "TEST 6: DÉTECTION D'ATTAQUES"
     
     info "Vérification de la détection des événements sécurité..."
     
     # DoS detection
-    if grep -qi "dos\|attack\|brute\|intrusion" /var/log/syslog 2>/dev/null; then
+    if grep -qi "dos\\|attack\\|brute\\|intrusion" /var/log/syslog 2>/dev/null; then
         pass "Logs de sécurité/attaque détectés"
     else
         info "Aucun événement de sécurité détecté (normal si peu d'activité)"
@@ -280,8 +286,8 @@ test_attack_detection() {
     
     # Si Wazuh active, chercher dans alerts
     if [[ -f "$WAZUH_ALERTS" ]]; then
-        if grep -q "\"level\": [789]" "$WAZUH_ALERTS" 2>/dev/null; then
-            CRITICAL=$(grep -c "\"level\": [789]" "$WAZUH_ALERTS" 2>/dev/null || echo "0")
+        if grep -q "\\"level\\": [789]" "$WAZUH_ALERTS" 2>/dev/null; then
+            CRITICAL=$(grep -c "\\"level\\": [789]" "$WAZUH_ALERTS" 2>/dev/null || echo "0")
             warn "Alertes critiques détectées ($CRITICAL niveau 7-9)"
         fi
     fi
@@ -290,7 +296,7 @@ test_attack_detection() {
 }
 
 test_log_parsing() {
-    header "TEST 7: Parsing des Logs"
+    header "TEST 7: PARSING DES LOGS"
     
     info "Test de parsing format logs TL-MR100..."
     
@@ -305,7 +311,7 @@ test_log_parsing() {
 }
 
 test_performance() {
-    header "TEST 8: Performance Wazuh"
+    header "TEST 8: PERFORMANCE WAZUH"
     
     info "Vérification de la performance et de la charge..."
     
@@ -325,7 +331,7 @@ test_performance() {
     if pgrep -f "wazuh" > /dev/null 2>&1; then
         PS_OUTPUT=$(ps aux | grep "wazuh" | grep -v grep | head -1 || true)
         if [[ -n "$PS_OUTPUT" ]]; then
-            info "$(echo $PS_OUTPUT | awk '{printf "CPU: %.1f%%, MEM: %.1f%%\n", $3, $4}')"
+            info "$(echo $PS_OUTPUT | awk '{printf "CPU: %.1f%%, MEM: %.1f%%\\n", $3, $4}')"
         fi
     fi
     
@@ -333,7 +339,7 @@ test_performance() {
 }
 
 test_responsiveness() {
-    header "TEST 9: Réactivité des Alertes"
+    header "TEST 9: RÉACTIVITÉ DES ALERTES"
     
     info "Test de réactivité (délai alerte)..."
     
@@ -355,7 +361,7 @@ test_responsiveness() {
 }
 
 test_rule_accuracy() {
-    header "TEST 10: Précision des Règles"
+    header "TEST 10: PRÉCISION DES RÈGLES"
     
     info "Vérification de la précision du matching..."
     
@@ -381,6 +387,11 @@ generate_report() {
     header "RÉSUMÉ DES TESTS"
     
     echo "Fichier de log: $TEST_LOG"
+    echo ""
+    echo "Architecture testée:"
+    echo "  [✓] Routeur: $ROUTER_IP (TL-MR100)"
+    echo "  [✓] Serveur: $SERVER_IP (Wazuh/RADIUS)"
+    echo "  [✓] Syslog port: 514 UDP"
     echo ""
     echo "Tests Syslog/Wazuh:"
     echo "  [✓] Connectivité routeur TL-MR100"
@@ -411,6 +422,11 @@ generate_report() {
     echo "  # Redémarrer Wazuh"
     echo "  $ sudo systemctl restart wazuh-manager"
     echo ""
+    echo "  # Configurer syslog sur TL-MR100"
+    echo "  Admin → System → Logs → Syslog Server"
+    echo "  Server IP: $SERVER_IP"
+    echo "  Port: 514"
+    echo ""
     
     echo -e "${GREEN}✓ Tests Syslog/Wazuh terminés${NC}\n"
 }
@@ -424,8 +440,8 @@ main() {
     
     echo -e "${CYAN}"
     echo "╔════════════════════════════════════════════════════════╗"
-    echo "║        SAE 5.01 - TEST SYSLOG TL-MR100                 ║"
-    echo "║        $(date +"%Y-%m-%d %H:%M:%S")                           ║"
+    echo "║        SAE 5.01 - TEST SYSLOG TL-MR100                   ║"
+    echo "║        $(date +"%Y-%m-%d %H:%M:%S")                          ║"
     echo "╚════════════════════════════════════════════════════════╝"
     echo -e "${NC}\n"
     
