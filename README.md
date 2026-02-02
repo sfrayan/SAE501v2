@@ -113,11 +113,11 @@ Client WiFi → Routeur (192.168.10.1) → VM (192.168.10.100:1812)
 
 **Configuration** `/etc/network/interfaces` :
 ```bash
-auto eth0
-iface eth0 inet static
+auto enp0s8
+iface enp0s8 inet static
     address 192.168.10.100
     netmask 255.255.255.0
-    gateway 192.168.10.1
+    # PAS de gateway ici (pour éviter conflit avec enp0s3)
     dns-nameservers 8.8.8.8 8.8.4.4
 ```
 
