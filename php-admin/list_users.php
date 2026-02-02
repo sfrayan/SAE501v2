@@ -4,11 +4,11 @@
  *
  * Fichier: php-admin/list_users.php
  * Auteur: GroupeNani
- * Date: 4 janvier 2026
+ * Date: 3 février 2026 - Version SANS GROUPES
  *
  * Description:
- *   Affiche la liste de tous les utilisateurs RADIUS créés.
- *   Inclut les informations: utilisateur, groupe, mot de passe.
+ *   Affiche la liste de tous les utilisateurs RADIUS.
+ *   Version simplifiée SANS système de groupes.
  */
 
 require_once 'config.php';
@@ -19,16 +19,14 @@ $error = '';
 try {
     $pdo = get_db_connection();
     
-    // Récupérer les utilisateurs avec leurs groupes
+    // Récupérer les utilisateurs (SANS groupes)
     $stmt = $pdo->prepare('
         SELECT 
             rc.id,
             rc.username,
             rc.value as password,
-            rug.groupname,
             rc.attribute
         FROM radcheck rc
-        LEFT JOIN radusergroup rug ON rc.username = rug.username
         WHERE rc.attribute IN ("Cleartext-Password", "User-Password")
         ORDER BY rc.username ASC
     ');
@@ -62,7 +60,7 @@ try {
         }
         
         .container {
-            max-width: 900px;
+            max-width: 800px;
             margin: 40px auto;
             background: white;
             border-radius: 10px;
@@ -150,29 +148,6 @@ try {
             font-family: monospace;
         }
         
-        .group {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 3px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-        
-        .group.staff {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .group.guests {
-            background: #cce5ff;
-            color: #004085;
-        }
-        
-        .group.managers {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
         .empty {
             text-align: center;
             padding: 40px;
@@ -241,7 +216,7 @@ try {
     <div class="container">
         <div class="header">
             <h1>📋 Lister Utilisateurs</h1>
-            <p>Tous les utilisateurs RADIUS créés dans la base de données</p>
+            <p>Tous les utilisateurs RADIUS (tous ont les mêmes droits)</p>
         </div>
         
         <?php if ($error): ?>
@@ -266,7 +241,6 @@ try {
                     <thead>
                         <tr>
                             <th>Utilisateur</th>
-                            <th>Groupe</th>
                             <th>Mot de passe</th>
                             <th>Actions</th>
                         </tr>
@@ -275,11 +249,6 @@ try {
                         <?php foreach ($users as $user): ?>
                             <tr>
                                 <td class="username"><?php echo escape_html($user['username']); ?></td>
-                                <td>
-                                    <span class="group <?php echo escape_html($user['groupname'] ?? 'staff'); ?>">
-                                        <?php echo escape_html($user['groupname'] ?? 'N/A'); ?>
-                                    </span>
-                                </td>
                                 <td>
                                     <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">
                                         <?php echo escape_html(substr($user['password'], 0, 8) . '****'); ?>
@@ -304,7 +273,7 @@ try {
         </div>
         
         <div class="footer">
-            <p>SAE 5.01 © 2026 | Les mots de passe affichés sont tronqués pour la sécurité</p>
+            <p>SAE 5.01 © 2026 | Tous les utilisateurs ont les mêmes droits d'accès</p>
         </div>
     </div>
 </body>
