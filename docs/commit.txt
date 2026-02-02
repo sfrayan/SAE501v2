@@ -1,4 +1,0 @@
-docs: Procédure de hardening Linux ANSSI (SSH, UFW, Permissions)
-docs: Configuration complète Wazuh - Syslog, Décodeurs, Règles, Dashboards
-docs: Tests d'isolement VLAN invité avec 9 procédures techniques et preuves
-docs: Journal de bord complet - Suivi quotidien 4-19 janvier
