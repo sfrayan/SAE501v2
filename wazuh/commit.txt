@@ -1,3 +1,0 @@
-feat(wazuh): Ajouter configuration manager Wazuh (moniteur sécurité)
-feat(wazuh): Ajouter règles personnalisées détection incidents SAE 5.01
-feat(wazuh): Ajouter configuration collecte logs TL-MR100 via syslog
