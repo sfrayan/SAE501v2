@@ -152,13 +152,13 @@ cd - > /dev/null
 # Activer module EAP
 ln -sf ../mods-available/eap "$FR_CONF/mods-enabled/eap" 2>/dev/null || true
 
-# 10. Suppression des warnings GROUP_MEMBERSHIP
+# 10. Suppression des warnings GROUP_MEMBERSHIP (FIX: modifier mods-available au lieu de mods-enabled)
 echo "[10/11] Suppression warnings MySQL..."
-if [ -f "$FR_CONF/mods-enabled/sql" ]; then
-    # Commenter les queries de groupe si elles existent
-    sed -i 's/^[[:space:]]*group_membership_query/#group_membership_query/g' "$FR_CONF/mods-enabled/sql"
-    sed -i 's/^[[:space:]]*groupcheck_query/#groupcheck_query/g' "$FR_CONF/mods-enabled/sql"
-    sed -i 's/^[[:space:]]*groupreply_query/#groupreply_query/g' "$FR_CONF/mods-enabled/sql"
+if [ -f "$FR_CONF/mods-available/sql" ]; then
+    # IMPORTANT: Modifier le fichier source (mods-available), pas le lien symbolique (mods-enabled)
+    sed -i 's/^[[:space:]]*group_membership_query/#group_membership_query/g' "$FR_CONF/mods-available/sql"
+    sed -i 's/^[[:space:]]*groupcheck_query/#groupcheck_query/g' "$FR_CONF/mods-available/sql"
+    sed -i 's/^[[:space:]]*groupreply_query/#groupreply_query/g' "$FR_CONF/mods-available/sql"
     echo "✅ Warnings GROUP_MEMBERSHIP supprimés"
 fi
 
