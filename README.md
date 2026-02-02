@@ -1,6 +1,6 @@
-# 🏋️ SAE 5.01 - Architecture Wi-Fi Sécurisée Multi-Sites
+# 🏋️ SAE 5.01 - Architecture Wi-Fi Sécurisée avec RADIUS
 
-**Projet académique SAE 5.01** - Déploiement d'une infrastructure Wi-Fi d'entreprise sécurisée avec authentification 802.1X, supervision centralisée et architecture multi-sites.
+**Projet académique SAE 5.01** - Déploiement d'une infrastructure Wi-Fi sécurisée avec authentification 802.1X et supervision centralisée.
 
 **Durée totale** : ~3 heures (VM : 30 min + Routeur : 1h + Tests/Hardening : 1.5h)
 
@@ -10,13 +10,12 @@
 
 1. [Objectifs du projet](#objectifs)
 2. [Architecture globale](#architecture)
-3. [Installation complète (guide étape par étape)](#installation)
-4. [Configuration du routeur](#routeur)
-5. [Tests et validation](#tests)
-6. [Hardening du serveur](#hardening)
-7. [Supervision avec Wazuh](#wazuh)
+3. [Configuration réseau IMPORTANTE](#config-reseau)
+4. [Installation complète](#installation)
+5. [Configuration du routeur](#routeur)
+6. [Tests et validation](#tests)
+7. [Hardening du serveur](#hardening)
 8. [Troubleshooting](#troubleshooting)
-9. [Livrables et documentation](#livrables)
 
 ---
 
@@ -26,174 +25,136 @@
 
 - ✅ Déployer un **serveur RADIUS centralisé** (FreeRADIUS + MySQL)
 - ✅ Configurer une **authentification 802.1X sécurisée** (PEAP-MSCHAPv2, sans certificat client)
-- ✅ Mettre en place un **réseau Wi-Fi d'entreprise** sécurisé et un **réseau invité isolé**
-- ✅ Implémenter une **interface de gestion** (PHP) pour ajouter/supprimer des utilisateurs
-- ✅ Intégrer une **supervision centralisée** (Wazuh) avec détection d'intrusion
-- ✅ Tester l'**isolement réseau** (staff/guests/managers)
+- ✅ Mettre en place deux réseaux Wi-Fi :
+  - **Fitness-Pro** : Authentification RADIUS (WPA2-Enterprise)
+  - **Fitness-Guest** : Mot de passe partagé (WPA2-PSK) avec AP Isolation
+- ✅ Implémenter une **interface de gestion PHP** pour ajouter/supprimer des utilisateurs
+- ✅ Intégrer une **supervision centralisée Wazuh** avec détection d'intrusion
 
 ### Sécurité
 
-- ✅ **Authentification** : PEAP-MSCHAPv2 sans certificat client (facile à déployer)
-- ✅ **Isolation** : Réseau invité isolé du réseau interne
+- ✅ **Authentification** : PEAP-MSCHAPv2 sans certificat client
+- ✅ **Isolation** : AP Isolation pour le réseau invité
 - ✅ **Chiffrement** : TLS pour les échanges RADIUS
 - ✅ **Hardening** : SSH sécurisé, firewall UFW, permissions restrictives
-- ✅ **Audit** : Journalisation complète des authentifications et accès
-
-### Pédagogiques
-
-- ✅ Comprendre les protocoles **802.1X et EAP**
-- ✅ Maîtriser **FreeRADIUS** et son intégration MySQL
-- ✅ Configurer **Wazuh** pour la détection de menaces
-- ✅ Analyser les risques **EBIOS ANSSI**
-- ✅ Appliquer le **hardening Linux** en production
+- ✅ **Audit** : Journalisation complète des authentifications
 
 ---
 
-## 🏗️ Architecture
+## 🏭 Architecture
 
-### Vue d'ensemble
+### Schéma réseau
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    INFRASTRUCTURE SAE 5.01                       │
-└─────────────────────────────────────────────────────────────────┘
+                    PC PORTABLE (Hôte)
+                    ├─ WiFi (wlan0): Internet via Box
+                    └─ LAN (eth0): Vers routeur TP-Link
+                             │
+                             │ Câble RJ45
+                             ▼
+              ┌───────────────────────────────┐
+              │  ROUTEUR TP-LINK TL-MR100     │
+              │  IP: 192.168.10.1             │
+              ├───────────────────────────────┤
+              │                                │
+              │  SSID: Fitness-Pro            │
+              │  - WPA2-Enterprise            │
+              │  - Auth RADIUS via VM         │
+              │                                │
+              │  SSID: Fitness-Guest          │
+              │  - WPA2-PSK                   │
+              │  - AP Isolation activée       │
+              │                                │
+              │  RADIUS: 192.168.10.100:1812  │
+              │  Syslog: 192.168.10.100:514   │
+              └───────────────────────────────┘
+                             │
+                             │ Réseau 192.168.10.0/24
+                             ▼
+          ┌───────────────────────────────────┐
+          │      VM DEBIAN 11 (Serveur)        │
+          ├───────────────────────────────────┤
+          │                                    │
+          │  eth0 (Bridge): 192.168.10.100   │
+          │  ├─ Gateway: 192.168.10.1          │
+          │  └─ Communication avec routeur    │
+          │                                    │
+          │  eth1 (NAT): 10.0.2.15           │
+          │  ├─ Gateway: 10.0.2.2              │
+          │  └─ Internet pour apt-get         │
+          │                                    │
+          │  Services:                        │
+          │  ├─ FreeRADIUS: 1812/UDP          │
+          │  ├─ MySQL: 3306/TCP (local)       │
+          │  ├─ Apache/PHP-Admin: 80/TCP      │
+          │  ├─ Wazuh Manager: 1514/UDP       │
+          │  └─ rsyslog: 514/UDP              │
+          └───────────────────────────────────┘
+```
 
-┌──────────────────────────────────────────────────────────────────┐
-│                    SERVEUR CENTRALISÉ (Debian 11 VM)             │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  AUTHENTIFICATION & GESTION                              │   │
-│  │  ┌──────────────────┐  ┌──────────────────────────────┐ │   │
-│  │  │  FreeRADIUS      │  │  MariaDB/MySQL               │ │   │
-│  │  │  Port: 1812 UDP  │  │  Port: 3306 TCP              │ │   │
-│  │  │  PEAP-MSCHAPv2   │  │  DB: radius                  │ │   │
-│  │  │  Certificat TLS  │  │  Tables: radcheck, radacct   │ │   │
-│  │  └──────────────────┘  └──────────────────────────────┘ │   │
-│  │          │                          │                      │   │
-│  │          └──────────┬───────────────┘                      │   │
-│  │                     │                                       │   │
-│  │  ┌─────────────────────────────────────────────────────┐  │   │
-│  │  │  PHP-Admin Interface (Web UI)                       │  │   │
-│  │  │  - Ajouter/supprimer utilisateurs RADIUS            │  │   │
-│  │  │  - Afficher les comptes actifs                      │  │   │
-│  │  │  - Journaliser les actions                          │  │   │
-│  │  │  Port: 80/443 (Apache + PHP)                       │  │   │
-│  │  └─────────────────────────────────────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  SUPERVISION & SÉCURITÉ                                 │   │
-│  │  ┌──────────────────┐  ┌──────────────────────────────┐ │   │
-│  │  │  Wazuh Manager   │  │  rsyslog                     │ │   │
-│  │  │  Port: 1514 UDP  │  │  Port: 514 UDP               │ │   │
-│  │  │  - SIEM          │  │  Réception logs              │ │   │
-│  │  │  - Alertes       │  │  - FreeRADIUS                │ │   │
-│  │  │  - Détection     │  │  - Routeur TL-MR100         │ │   │
-│  │  └──────────────────┘  └──────────────────────────────┘ │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  SÉCURITÉ SERVEUR                                       │   │
-│  │  - SSH: Authentification par clés (pas root)            │   │
-│  │  - UFW: Pare-feu configuré (ports min)                  │   │
-│  │  - Permissions: 640 (config), 750 (répertoires)        │   │
-│  │  - Audit: journalctl, auditctl                          │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────┘
-                             ▲
-                    Ethernet / RJ45
-                             │
-┌──────────────────────────────────────────────────────────────────┐
-│          ROUTEUR TP-LINK TL-MR100 (Point d'accès Wi-Fi)          │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │  SSID "Fitness-Pro" (Entreprise)                          │ │
-│  │  - WPA2-Enterprise                                         │ │
-│  │  - Authentification PEAP-MSCHAPv2 via RADIUS              │ │
-│  │  - VLAN 10 (Staff)                                         │ │
-│  │  - IP: 192.168.10.x (/24)                                 │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│                                                                   │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │  SSID "Fitness-Guest" (Invités)                           │ │
-│  │  - WPA2-PSK (mot de passe partagé)                        │ │
-│  │  - Isolement: AP Isolation activée                         │ │
-│  │  - VLAN 20 (Guests)                                        │ │
-│  │  - IP: 192.168.20.x (/24)                                 │ │
-│  │  - Accès Internet seul (pas d'accès au réseau interne)   │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│                                                                   │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │  Configuration RADIUS                                      │ │
-│  │  - Serveur: IP du serveur (ex: 192.168.10.100)           │ │
-│  │  - Port: 1812 UDP                                         │ │
-│  │  - Secret: Pj8K2qL9xR5wM3nP7dF4vB6tH1sQ9cZ2              │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│                                                                   │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │  Syslog vers Wazuh                                         │ │
-│  │  - IP: 192.168.10.100                                     │ │
-│  │  - Port: 514 UDP                                          │ │
-│  │  - Pour supervision et audit                              │ │
-│  └────────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────┘
-                             ▲
-                    Clients Wi-Fi (RJ45 ou USB)
-                             │
-┌──────────────────────────────────────────────────────────────────┐
-│              CLIENTS Wi-Fi (Smartphones, laptops)                 │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  CLIENT STAFF (Entreprise)          CLIENT GUEST (Invités)      │
-│  ┌────────────────────────┐        ┌────────────────────────┐   │
-│  │ SSID: Fitness-Pro      │        │ SSID: Fitness-Guest    │   │
-│  │ Auth: 802.1X (EAP)     │        │ Auth: WPA2-PSK         │   │
-│  │ User: alice@gym.fr     │        │ Password: public       │   │
-│  │ Pass: Alice@123!       │        │                        │   │
-│  │                        │        │ Isolation: OUI         │   │
-│  │                        │        │                        │   │
-│  │ Accès: Réseau complet  │        │ Accès: Internet seul   │   │
-│  └────────────────────────┘        └────────────────────────┘   │
-│                                                                   │
-│  FLOW D'AUTHENTIFICATION (PEAP-MSCHAPv2)                        │
-│                                                                   │
-│  Client              TL-MR100            FreeRADIUS/MySQL        │
-│    │                    │                      │                │
-│    ├─ Scan réseau ─────>│                      │                │
-│    │                    │                      │                │
-│    ├─ Association ─────>│                      │                │
-│    │  (SSID+BSSID)      │                      │                │
-│    │                    │                      │                │
-│    ├─ EAP-Identity ────>│──────────────────────>│                │
-│    │  (alice@gym.fr)    │                      │                │
-│    │                    │                      ├─ Lookup BD     │
-│    │                    │                      │                │
-│    │<──────────────────────── EAP-Request ────|                │
-│    │  (TLS, certificat  │                      │                │
-│    │   serveur)         │                      │                │
-│    │                    │                      │                │
-│    ├──────────────────────────> EAP-Response ──>│                │
-│    │  (mot de passe     │                      │                │
-│    │   chiffré via TLS) │                      ├─ Vérification │
-│    │                    │                      │                │
-│    │<─────────────────────── EAP-Success ─────|                │
-│    │                    │<─ Access-Accept ───|                │
-│    │                    │                      │                │
-│    ├─ DHCP Request ────>│                      │                │
-│    │                    ├─ Assign VLAN 10    │                │
-│    │<─ DHCP Lease ──────│ (staff)              │                │
-│    │  (192.168.10.x)    │                      │                │
-│    │                    │                      │                │
-│    ├─ Accès réseau OK ──────────> ✅ CONNECTÉ                 │
-│    │                    │                      │                │
-└────────────────────────────────────────────────────────────────┘
+### Flux d'authentification RADIUS
+
+```
+Client WiFi → Routeur (192.168.10.1) → VM (192.168.10.100:1812)
+     ▲                                            │
+     │                                            ▼
+     └──────── Access-Accept/Reject ──── FreeRADIUS + MySQL
 ```
 
 ---
 
-## 🚀 Installation complète (du début à la fin)
+## ⚠️ Configuration Réseau IMPORTANTE {#config-reseau}
+
+### VM Debian 11 : 2 interfaces réseau requises
+
+#### Interface eth0 (Bridge LAN)
+
+**Rôle** : Communication avec le routeur TP-Link et les clients WiFi
+
+**Configuration** `/etc/network/interfaces` :
+```bash
+auto eth0
+iface eth0 inet static
+    address 192.168.10.100
+    netmask 255.255.255.0
+    gateway 192.168.10.1
+    dns-nameservers 8.8.8.8 8.8.4.4
+```
+
+**Hyperviseur** : Mode Bridge sur l'interface LAN du PC hôte
+
+#### Interface eth1 (NAT)
+
+**Rôle** : Accès Internet pour `apt-get`, `wget`, installations de paquets
+
+**Configuration** `/etc/network/interfaces` :
+```bash
+auto eth1
+iface eth1 inet dhcp
+```
+
+**Hyperviseur** : Mode NAT (VirtualBox/VMware)
+
+#### Vérification de la configuration
+
+```bash
+# Vérifier les interfaces
+ip addr show
+
+# eth0 doit avoir: 192.168.10.100
+# eth1 doit avoir: 10.0.2.15 (ou similaire)
+
+# Vérifier la connectivité routeur
+ping 192.168.10.1
+
+# Vérifier l'accès Internet
+ping -I eth1 8.8.8.8
+apt update    # Doit fonctionner via eth1
+```
+
+---
+
+## 🚀 Installation complète {#installation}
 
 ### Phase 1 : Installation VM (30 min)
 
@@ -202,8 +163,8 @@
 ```bash
 # Vérifier les prérequis
 lsb_release -d        # Debian 11
-free -h               # 6GB RAM
-df -h /               # 50GB disque
+free -h               # 4GB RAM minimum
+df -h /               # 20GB disque minimum
 
 # Mettre à jour le système
 sudo apt update && sudo apt upgrade -y
@@ -213,8 +174,8 @@ sudo apt update && sudo apt upgrade -y
 
 ```bash
 cd ~
-git clone https://github.com/votre-username/SAE501.git
-cd SAE501
+git clone https://github.com/sfrayan/SAE501v2.git
+cd SAE501v2
 chmod +x scripts/*.sh
 ```
 
@@ -227,7 +188,7 @@ sudo bash scripts/install_radius.sh
 # Vérifier
 systemctl status freeradius
 radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123
-# Expected: Response code (2) = Access-Accept
+# Attendu: Access-Accept
 ```
 
 #### Étape 1.4 : Installer PHP-Admin
@@ -237,17 +198,15 @@ sudo bash scripts/install_php_admin.sh
 
 # Vérifier
 curl http://localhost/php-admin/list_users.php
-# Devrait afficher une liste HTML
 ```
 
-#### Étape 1.5 : Installer Wazuh
+#### Étape 1.5 : Installer Wazuh (optionnel)
 
 ```bash
 sudo bash scripts/install_wazuh.sh
 
 # Vérifier
 systemctl status wazuh-manager
-sudo tail -f /var/ossec/logs/ossec.log
 ```
 
 #### Étape 1.6 : Diagnostic VM
@@ -259,235 +218,190 @@ sudo bash scripts/diagnostics.sh
 
 ---
 
-### Phase 2 : Configuration du Routeur TL-MR100 (1 heure)
+### Phase 2 : Configuration du Routeur TL-MR100 (1h) {#routeur}
 
-#### Étape 2.1 : Préparer le routeur
+#### Étape 2.1 : Accéder au routeur
 
-1. **Brancher le routeur** en RJ45 sur votre ordinateur portable
-2. **Accéder à l'interface d'administration**
+1. **Brancher le routeur** en RJ45 sur le port LAN de votre PC
+2. **Accéder à l'interface**
    ```
    URL: http://192.168.10.1
-   Admin: admin
-   Password: admin
+   Login: admin
+   Password: admin (par défaut)
    ```
 
-#### Étape 2.2 : Configuration réseau
+#### Étape 2.2 : Configurer le réseau
 
-**Paramètres LAN** → Configurer IP statique
-   ```
-   IP LAN: 192.168.10.1
-   Masque: 255.255.255.0
-   DHCP: Activé (192.168.10.100 → 192.168.10.254)
-   ```
+**Menu** → **Network** → **LAN**
 
-#### Étape 2.3 : Configurer l'authentification RADIUS
+```
+IP LAN: 192.168.10.1
+Masque: 255.255.255.0
+DHCP Server: Activé
+  - Start IP: 192.168.10.101
+  - End IP: 192.168.10.254
+  - Réservation VM: 192.168.10.100
+```
 
-Dans l'interface admin du routeur :
+#### Étape 2.3 : Configurer RADIUS
 
-**Menu** → **System** → **RADIUS**
+**Menu** → **Wireless** → **RADIUS Settings**
 
 ```
 Primary RADIUS Server:
-  IP Address: 192.168.10.100 (IP de votre VM)
+  IP Address: 192.168.10.100
   Port: 1812
-  Secret: Pj8K2qL9xR5wM3nP7dF4vB6tH1sQ9cZ2
-  
+  Shared Secret: Pj8K2qL9xR5wM3nP7dF4vB6tH1sQ9cZ2
 ```
 
 #### Étape 2.4 : Configurer les SSID
 
-**Menu** → **Wireless** → **Edit**
+**SSID 1 - Fitness-Pro (Entreprise)**
 
-**SSID 1 - Entreprise (Fitness-Pro)**
 ```
 SSID: Fitness-Pro
-Channel: auto
+Security Mode: WPA2-Enterprise
+RADIUS Server: 192.168.10.100:1812
+Channel: Auto
 Bandwidth: 20MHz
-Transmit Power: High
-Security:
-  - Type: WPA2-Enterprise
-  - RADIUS Server: Configuré ci-dessus
 ```
 
-**SSID 2 - Invités (Fitness-Guest)**
+**SSID 2 - Fitness-Guest (Invités)**
+
 ```
 SSID: Fitness-Guest
-Channel: auto
-Bandwidth: 20MHz
-Transmit Power: High
-Security:
-  - Type: WPA2-PSK
-  - Password: GuestPass@2026 (à changer)
-Bandwidth Limit: 10 Mbps (optionnel, pour limiter les invités)
+Security Mode: WPA2-PSK
+Password: GuestPass@2026
+AP Isolation: Activé (✅ Très important)
+Channel: Auto
 ```
 
-#### Étape 2.5 : Configurer le Syslog vers Wazuh
+**⚠️ Note** : L'AP Isolation empêche les clients connectés à Fitness-Guest de communiquer entre eux.
 
-**Menu** → **System** → **Syslog**
+#### Étape 2.5 : Configurer Syslog
+
+**Menu** → **System** → **Log**
 
 ```
-Syslog Server:
-  IP Address: 192.168.10.100 (VM)
-  Port: 514
-  Protocol: UDP
-  Enable: ON
+Syslog Server: 192.168.10.100
+Port: 514
+Protocol: UDP
+Enable: ON
 ```
 
-#### Étape 2.6 : Vérifier la configuration
+#### Étape 2.6 : Vérification
 
 ```bash
-# Depuis votre ordinateur (ou une autre machine)
-ping 192.168.10.1
-# Doit répondre
+# Depuis votre PC
+ping 192.168.10.1       # Routeur
+ping 192.168.10.100     # VM
 
 # Scanner les SSID
-nmcli dev wifi list
+nmcli dev wifi list | grep Fitness
 # Doit afficher:
-#  Fitness-Pro
-#  Fitness-Guest
+#   Fitness-Pro
+#   Fitness-Guest
 ```
 
 ---
 
-### Phase 3 : Tests Wi-Fi et Validation (45 min)
+### Phase 3 : Tests (45 min) {#tests}
 
-#### Étape 3.1 : Test authentification PEAP sur client
+#### Test 1 : Authentification Fitness-Pro
 
-**Depuis un client Linux :**
+**Sur un client WiFi :**
+
+1. Se connecter au SSID `Fitness-Pro`
+2. Sélectionner **WPA2-Enterprise** / **PEAP**
+3. Entrer :
+   - **Identité** : `alice@gym.fr`
+   - **Mot de passe** : `Alice@123!`
+4. Vérifier l'IP obtenue : `192.168.10.x`
+
+**Vérification sur la VM :**
 
 ```bash
-# Installer les tools
-sudo apt install wpa-supplicant network-manager wpasupplicant
+# Voir les authentifications
+sudo tail -f /var/log/freeradius/radius.log
 
-# Créer un profil de connexion
-cat > ~/fitness-pro.conf << 'EOF'
-network={
-    ssid="Fitness-Pro"
-    key_mgmt=WPA-EAP
-    eap=PEAP
-    phase1="peapver=auto"
-    phase2="auth=MSCHAPV2"
-    identity="alice@gym.fr"
-    password="Alice@123!"
-    ca_cert="/etc/ssl/certs/ca-certificates.crt"
-    anonymous_identity="anonymous"
-}
-EOF
-
-# Tester la connexion
-sudo wpa_supplicant -i wlan0 -c ~/fitness-pro.conf -v
-# Devrait afficher: "CONNECTED"
+# Doit afficher:
+# Login OK: [alice@gym.fr] (from client 192.168.10.1 ...)
 ```
 
-**Depuis Windows/Mac :**
-1. Ouvrir paramètres Wi-Fi
-2. Cliquer sur "Fitness-Pro" → Connecter
-3. Sélectionner **PEAP**
-4. Entrer : `alice@gym.fr` / `Alice@123!`
+#### Test 2 : Connexion Fitness-Guest
 
-#### Étape 3.2 : Vérifier l'assignation VLAN
+1. Se connecter au SSID `Fitness-Guest`
+2. Entrer le mot de passe : `GuestPass@2026`
+3. Vérifier l'IP obtenue : `192.168.10.x`
+
+#### Test 3 : AP Isolation
+
+**Depuis un client Fitness-Guest :**
 
 ```bash
-# Voir l'IP obtenue
-ip addr show
-# Doit être 192.168.10.x
+# Identifier IP d'un autre client Guest
+arp -a
 
+# Tenter de ping
+ping <IP_autre_client_guest>
+# ✅ Doit échouer (timeout) grâce à l'AP Isolation
 ```
 
-#### Étape 3.3 : Test isolement réseau (VLAN)
+#### Test 4 : Logs Wazuh
 
 ```bash
-# Depuis un client STAFF
-ping 192.168.10.100          # Gateway STAFF → OK
-ping 8.8.8.8                 # Internet → OK
-
-# Depuis un client GUEST 
-ping 192.168.10.100          # Gateway GUEST → OK
-ping 192.168.10.1            # Routeur  → BLOQUÉ ✓
-ping 192.168.10.x (staff)    # Client STAFF → BLOQUÉ ✓
-ping 8.8.8.8                 # Internet → OK
-```
-
-#### Étape 3.4 : Test avec tcpdump (preuve d'isolement)
-
-```bash
-# Sur la VM Debian
-cd ~/SAE501
-
-# Lancer le test d'isolement
-sudo bash tests/test_isolement.sh 192.168.10.1
-
-# Générer capture tcpdump
-sudo tcpdump -i eth0 -w isolement.pcap port 1812 or port 514
-
-# Analyser avec Wireshark
-wireshark isolement.pcap &
-```
-
-#### Étape 3.5 : Vérifier la supervision Wazuh
-
-```bash
-# Sur la VM, vérifier que Wazuh reçoit les authentifications
+# Sur la VM
 sudo grep -i "radius\|authentication" /var/ossec/logs/alerts/alerts.json
 
-# Vérifier les logs du routeur reçus
-sudo tail -f /var/log/syslog | grep "TL-MR100\|radiusd"
+# Vérifier réception logs routeur
+sudo tail -f /var/log/syslog | grep "192.168.10.1"
 ```
 
 ---
 
-### Phase 4 : Hardening du Serveur Linux (30 min)
+### Phase 4 : Hardening (30 min) {#hardening}
 
-#### Étape 4.1 : Sécuriser SSH
+#### SSH sécurisé
 
 ```bash
-# Générer une paire de clés (locale)
-ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_sae501
+# Générer clés SSH (sur votre PC)
+ssh-keygen -t ed25519 -f ~/.ssh/sae501_key
 
 # Copier la clé publique sur la VM
-ssh-copy-id -i ~/.ssh/id_rsa_sae501.pub user@vm-sae501
+ssh-copy-id -i ~/.ssh/sae501_key.pub user@192.168.10.100
 
-# Configuration SSH sécurisée (sur la VM)
+# Sur la VM : désactiver authentification par mot de passe
 sudo nano /etc/ssh/sshd_config
 
 # Modifier:
-PermitRootLogin no                    # Désactiver root
-PubkeyAuthentication yes               # Clés SSH
-PasswordAuthentication no              # Pas de password
-X11Forwarding no                       # Pas de X11
-MaxAuthTries 3                         # Limite tentatives
-LoginGraceTime 30s                     # Timeout
+PasswordAuthentication no
+PermitRootLogin no
 
 # Redémarrer SSH
 sudo systemctl restart ssh
-
-# Vérifier
-sudo systemctl status ssh
 ```
 
-#### Étape 4.2 : Configurer le Firewall UFW
+#### Firewall UFW
 
 ```bash
 # Activer UFW
 sudo ufw enable
 
-# Autoriser SSH
-sudo ufw allow 22/tcp
+# Règles essentielles
+sudo ufw allow from 192.168.10.0/24 to any port 22 proto tcp   # SSH
+sudo ufw allow from 192.168.10.0/24 to any port 1812 proto udp # RADIUS
+sudo ufw allow from 192.168.10.0/24 to any port 514 proto udp  # Syslog
+sudo ufw allow from 192.168.10.0/24 to any port 80 proto tcp   # Web
 
-# Services essentiels
-sudo ufw allow 1812/udp      # FreeRADIUS
-sudo ufw allow 1813/udp      # FreeRADIUS acct
-sudo ufw allow 1514/udp      # Wazuh syslog
-sudo ufw allow 80/tcp        # Apache (PHP-Admin)
-sudo ufw allow 443/tcp       # Apache HTTPS
+# Bloquer tout le reste
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
 
-# Vérifier la configuration
+# Vérifier
 sudo ufw status verbose
-
-# Par défaut: tous les ports fermés, sauf ceux autorisés ✓
 ```
 
-#### Étape 4.3 : Permissions et propriétaires
+#### Permissions
 
 ```bash
 # FreeRADIUS
@@ -495,311 +409,113 @@ sudo chown -R root:freerad /etc/freeradius/3.0
 sudo chmod -R 750 /etc/freeradius/3.0
 sudo chmod 640 /etc/freeradius/3.0/clients.conf
 
-# MySQL/MariaDB
+# MySQL
 sudo chown -R mysql:mysql /var/lib/mysql
-sudo chmod -R 750 /var/lib/mysql
-
-# Wazuh
-sudo chown -R root:wazuh /var/ossec/etc/
-sudo chmod -R 750 /var/ossec/etc/
-
-# Logs
-sudo mkdir -p /var/log/freeradius
-sudo chown freerad:freerad /var/log/freeradius
-sudo chmod 750 /var/log/freeradius
-```
-
-#### Étape 4.4 : Journalisation centralisée
-
-```bash
-# Activer auditctl (audit du système)
-sudo apt install auditd
-sudo systemctl enable auditd
-sudo systemctl start auditd
-
-# Monitorer les actions sensibles
-sudo auditctl -w /etc/freeradius/3.0/clients.conf -p wa -k radius_config
-sudo auditctl -w /var/lib/mysql/radius -p wa -k radius_db
-
-# Vérifier
-sudo auditctl -l
-
-# Voir les événements
-sudo tail -f /var/log/audit/audit.log
-```
-
-#### Étape 4.5 : Hardening supplémentaire
-
-```bash
-# Désactiver services inutiles
-sudo systemctl disable bluetooth avahi-daemon cups
-
-# Mettre à jour régulièrement
-sudo apt update && sudo apt upgrade -y
-
-# Vérifier les ports ouverts
-sudo ss -lun
-# Doit afficher SEULEMENT:
-#  Port 22 (SSH)
-#  Port 80 (Apache)
-#  Port 1812 (RADIUS)
-#  Port 1514 (Wazuh syslog)
+sudo chmod 700 /var/lib/mysql
 ```
 
 ---
 
-### Phase 5 : Tests de sécurité (15 min)
+## 🔧 Troubleshooting {#troubleshooting}
 
-#### Étape 5.1 : Test Access-Reject (brute-force)
-
-```bash
-# Générer 100 tentatives d'authentification échouées
-for i in {1..100}; do
-  radtest fake$i@gym.fr FakePass123! 127.0.0.1 1812 testing123 2>/dev/null &
-done
-
-# Vérifier que Wazuh détecte le brute-force
-sudo grep -i "brute\|failed" /var/ossec/logs/alerts/alerts.json
-# Devrait afficher des alertes
-```
-
-#### Étape 5.2 : Vérifier l'isolement invités
+### Problème : VM ne peut pas joindre le routeur
 
 ```bash
-# Client STAFF tente d'accéder à Client GUEST
-ping 192.168.10.x
-# BLOQUÉ ✓ (timeout)
+# Vérifier eth0
+ip addr show eth0
+# Doit afficher: 192.168.10.100
 
-# Vérifier avec tcpdump
-sudo tcpdump -i eth0 "icmp and src 192.168.10.0/24"
-# Les paquets ICMP entre VLANs ne doivent pas être relayés
-```
+# Vérifier que eth0 est en mode Bridge dans l'hyperviseur
+# VirtualBox: Réseau → Mode d'accès réseau: Pont
 
-#### Étape 5.3 : Test de performance Wazuh
+# Redémarrer l'interface
+sudo ifdown eth0 && sudo ifup eth0
 
-```bash
-# Générer du trafic RADIUS
-for i in {1..50}; do
-  radtest user$i@gym.fr Pass$i 127.0.0.1 1812 testing123 &
-done
-
-# Monitorer les alertes Wazuh
-watch 'grep -c "^20" /var/ossec/logs/alerts/alerts.json'
-```
-
----
-
-## 🔧 Dépannage avancé
-
-### Problèmes FreeRADIUS
-
-```bash
-# Vérifier syntaxe
-sudo freeradius -XC
-
-# Mode debug (très verbeux)
-sudo freeradius -X
-
-# Redémarrer proprement
-sudo systemctl restart freeradius
-
-# Voir les erreurs
-sudo journalctl -u freeradius -n 100
-```
-
-### Problèmes routeur
-
-```bash
-# Vérifier connectivité VM ↔ Routeur
 ping 192.168.10.1
-
-# Vérifier que RADIUS est reçu (sur routeur)
-# Menu → System → Status → Statistics
-
-# Réinitialiser routeur
-# Menu → System → Reboot
-# (OU: maintenir le bouton reset 10 secondes)
 ```
 
-### Problèmes réseau Wi-Fi
+### Problème : apt-get ne fonctionne pas
 
 ```bash
-# Scanner pour voir les SSID
-sudo iw dev wlan0 scan | grep "SSID:"
+# Vérifier eth1 (NAT)
+ip addr show eth1
+# Doit avoir une IP 10.0.2.x
 
-# Test connectivité ESSID
-sudo nmcli dev wifi connect Fitness-Pro password Alice@123!
+# Tester Internet via eth1
+ping -I eth1 8.8.8.8
 
-# Vérifier la qualité du signal
-nmcli -f SSID,SIGNAL,SECURITY dev wifi list
+# Si ça ne fonctionne pas, vérifier que eth1 est en NAT dans l'hyperviseur
+```
+
+### Problème : Clients WiFi ne s'authentifient pas
+
+```bash
+# Mode debug FreeRADIUS
+sudo systemctl stop freeradius
+sudo freeradius -X
+# Observer les paquets RADIUS entrants
+
+# Vérifier le secret RADIUS
+grep "secret" /etc/freeradius/3.0/clients.conf
+# Doit correspondre à la config du routeur
+
+# Vérifier le firewall
+sudo ufw status | grep 1812
+```
+
+### Problème : AP Isolation ne fonctionne pas
+
+```bash
+# Vérifier que l'AP Isolation est activée sur le routeur
+# Menu → Wireless → Guest Network → Enable AP Isolation
+
+# Tester depuis un client Guest
+arp -a  # Voir les autres clients
+ping <IP_autre_client>
+# Doit échouer (Request timeout)
 ```
 
 ---
 
-## 📚 Documentation complémentaire
+## 📋 Checklist finale
 
-Consultez les fichiers dans `docs/` :
-
-- **dossier-architecture.md** : Architecture complète, explications techniques
-- **hardening-linux.md** : Détails sécurité, commandes par catégorie
-- **wazuh-supervision.md** : Configuration avancée Wazuh, règles personnalisées
-- **isolement-wifi.md** : Tests d'isolement détaillés, captures Wireshark
-- **analyse-ebios.md** : Analyse de risques ANSSI, matrice menaces/mesures
-- **journal-de-bord.md** : Suivi du projet, jalons, leçons apprises
-
----
-
-## 📋 Checklist finale d'installation
-
-- [ ] **Phase 1 (VM)** - 30 min
-  - [ ] FreeRADIUS installé et testé
+- [ ] **VM configurée**
+  - [ ] eth0 (Bridge): 192.168.10.100
+  - [ ] eth1 (NAT): Internet fonctionnel
+  - [ ] FreeRADIUS actif et testé
   - [ ] MySQL opérationnel
   - [ ] PHP-Admin accessible
-  - [ ] Wazuh Manager actif
-  - [ ] Diagnostic: Score > 85%
 
-- [ ] **Phase 2 (Routeur)** - 1h
-  - [ ] Routeur accessible (192.168.10.1)
-  - [ ] RADIUS configuré
-  - [ ] SSID "Fitness-Pro" visible
-  - [ ] SSID "Fitness-Guest" visible
-  - [ ] Syslog vers Wazuh configuré
+- [ ] **Routeur configuré**
+  - [ ] IP: 192.168.10.1
+  - [ ] RADIUS: 192.168.10.100:1812 configuré
+  - [ ] SSID Fitness-Pro visible (WPA2-Enterprise)
+  - [ ] SSID Fitness-Guest visible (WPA2-PSK)
+  - [ ] AP Isolation activée sur Guest
+  - [ ] Syslog vers 192.168.10.100:514
 
-- [ ] **Phase 3 (Tests)** - 45 min
-  - [ ] Client STAFF se connecte (Fitness-Pro)
-  - [ ] Client STAFF obtient IP 192.168.10.x
-  - [ ] Client GUEST se connecte (Fitness-Guest)
-  - [ ] Client GUEST obtient IP 192.168.10.x
-  - [ ] STAFF ↔ GUEST : Isolé ✓
+- [ ] **Tests réussis**
+  - [ ] Authentification Fitness-Pro OK
+  - [ ] Connexion Fitness-Guest OK
+  - [ ] AP Isolation vérifiée
+  - [ ] Logs RADIUS visibles
   - [ ] Wazuh reçoit les logs
 
-- [ ] **Phase 4 (Hardening)** - 30 min
-  - [ ] SSH sans password, root désactivé
-  - [ ] UFW actif, ports minimaux ouverts
-  - [ ] Permissions fichiers restrictives
-  - [ ] Auditctl monitore les actions sensibles
-  - [ ] Services inutiles désactivés
-
-- [ ] **Phase 5 (Tests sécurité)** - 15 min
-  - [ ] Brute-force détecté par Wazuh
-  - [ ] Isolement VLAN validé (tcpdump)
-  - [ ] Wazuh gère la charge (50+ auth/s)
+- [ ] **Sécurité appliquée**
+  - [ ] SSH par clés uniquement
+  - [ ] UFW actif
+  - [ ] Permissions correctes
 
 ---
 
-## 🎯 Livrables GitLab/GitHub
+## 📚 Documentation
 
-Votre dépôt **DOIT** contenir :
+Consultez `docs/` pour plus de détails :
 
-```
-SAE501/
-├── README.md (ce fichier - vue complète du projet)
-├── SETUP.md (guide étape par étape)
-│
-├── docs/
-│   ├── dossier-architecture.md
-│   ├── hardening-linux.md
-│   ├── wazuh-supervision.md
-│   ├── isolement-wifi.md
-│   ├── analyse-ebios.md
-│   ├── journal-de-bord.md
-│   └── diagramme-gantt.md
-│
-├── scripts/
-│   ├── install_radius.sh
-│   ├── install_php_admin.sh
-│   ├── install_wazuh.sh
-│   └── diagnostics.sh
-│
-├── tests/
-│   ├── test_peap.sh
-│   ├── test_isolement.sh
-│   └── test_syslog_mr100.sh
-│
-├── radius/
-│   ├── clients.conf
-│   ├── users.txt
-│   └── sql/
-│       ├── create_tables.sql
-│       └── init_appuser.sql
-│
-├── php-admin/
-│   ├── index.php
-│   ├── add_user.php
-│   ├── list_users.php
-│   ├── delete_user.php
-│   └── config.php
-│
-├── wazuh/
-│   ├── manager.conf
-│   ├── local_rules.xml
-│   └── syslog-tlmr100.conf
-│
-└── captures/
-    ├── vm-installation.png
-    ├── router-config.png
-    ├── wifi-connection.png
-    ├── wazuh-dashboard.png
-    └── isolation-tcpdump.pcap
-```
-
----
-
-## ⏱️ Récapitulatif des durées
-
-| Phase | Tâche | Durée | Total |
-|-------|-------|-------|-------|
-| 1 | Clone + RADIUS | 10 min | 30 min |
-| 1 | PHP-Admin | 5 min |  |
-| 1 | Wazuh | 10 min |  |
-| 1 | Diagnostic | 5 min |  |
-| 2 | Config routeur | 45 min | 1h |
-| 2 | Configuration SSID + Syslog | 15 min |  |
-| 3 | Tests client Wi-Fi | 20 min | 45 min |
-| 3 | Tests isolement | 15 min |  |
-| 3 | Supervision Wazuh | 10 min |  |
-| 4 | Hardening SSH/UFW | 15 min | 30 min |
-| 4 | Permissions/Audit | 15 min |  |
-| 5 | Tests sécurité | 15 min | 15 min |
-| **TOTAL** | **Du clone au projet complet** | | **~2h30** |
-
----
-
-## 💡 Conseils importants
-
-### ✅ Bonnes pratiques
-
-1. **Documentez au fur et à mesure** (journal-de-bord.md)
-2. **Commitez régulièrement** sur GitHub/GitLab
-3. **Testez après chaque phase** (ne pas laisser traîner les bugs)
-4. **Sauvegardez les configurations** (copies locales)
-5. **Gardez les logs** (ils servent pour le troubleshooting)
-
-### 🔒 Sécurité
-
-1. **Ne JAMAIS partager le secret RADIUS en public**
-2. **Changer les passwords de test avant de présenter**
-3. **Activer le firewall AVANT de connecter au routeur**
-4. **Auditer régulièrement les authentifications**
-5. **Archiver les logs (au moins 30 jours)**
-
-### 📊 Préparation examen
-
-- Comprendre le **flow PEAP-MSCHAPv2** (diagramme ci-dessus)
-- Maîtriser les **commandes clés** (radtest, tcpdump, journalctl)
-- Savoir **diagnostiquer un Access-Reject**
-- Connaître l'**architecture multi-sites** (pourquoi RADIUS centralisé)
-- Expliquer l'**isolement** (why/how)
-
----
-
-## 📞 Support
-
-Pour toute question :
-1. Consultez les fichiers `docs/`
-2. Lancez `sudo bash scripts/diagnostics.sh`
-3. Vérifiez les logs : `sudo journalctl -u freeradius -u wazuh-manager -n 50`
-4. Posez vos questions à l'enseignant en TP
+- `dossier-architecture.md` : Architecture technique détaillée
+- `hardening-linux.md` : Sécurisation approfondie
+- `wazuh-supervision.md` : Configuration Wazuh avancée
+- `analyse-ebios.md` : Analyse de risques ANSSI
 
 ---
 
