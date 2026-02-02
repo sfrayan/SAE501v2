@@ -3,6 +3,8 @@ set -e
 
 SERVER_IP="${SERVER_IP:-192.168.10.100}"
 WAZUH_DIR="/opt/wazuh-docker"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 if [ "$EUID" -ne 0 ]; then
   echo "❌ Exécuter en root (sudo)"
@@ -15,7 +17,7 @@ echo ""
 
 # Install Docker if needed
 if ! command -v docker &> /dev/null; then
-  echo "[1/7] Installation Docker..."
+  echo "[1/10] Installation Docker..."
   
   # Detect OS
   . /etc/os-release
@@ -51,11 +53,11 @@ if ! command -v docker &> /dev/null; then
   systemctl enable --now docker > /dev/null 2>&1
   echo "✅ Docker installé"
 else
-  echo "[1/7] Docker OK"
+  echo "[1/10] Docker OK"
 fi
 
 # Install UFW
-echo "[2/7] Installation UFW..."
+echo "[2/10] Installation UFW..."
 if ! command -v ufw &> /dev/null; then
   apt-get update -qq
   apt-get install -y ufw > /dev/null 2>&1
@@ -65,22 +67,22 @@ else
 fi
 
 # System config
-echo "[3/7] Configuration système..."
+echo "[3/10] Configuration système..."
 grep -q "vm.max_map_count=262144" /etc/sysctl.conf || echo "vm.max_map_count=262144" >> /etc/sysctl.conf
 sysctl -w vm.max_map_count=262144 > /dev/null
 
 # Clone Wazuh
-echo "[4/7] Téléchargement Wazuh..."
+echo "[4/10] Téléchargement Wazuh..."
 rm -rf "$WAZUH_DIR"
 git clone https://github.com/wazuh/wazuh-docker.git -b v4.14.2 --single-branch "$WAZUH_DIR" > /dev/null 2>&1
 cd "$WAZUH_DIR/single-node"
 
 # Generate certs
-echo "[5/7] Génération certificats..."
+echo "[5/10] Génération certificats..."
 docker compose -f generate-indexer-certs.yml run --rm generator > /dev/null 2>&1
 
 # Deploy
-echo "[6/7] Démarrage Wazuh (2-3 min)..."
+echo "[6/10] Démarrage Wazuh (2-3 min)..."
 docker compose up -d
 
 # Wait for Wazuh to be ready
@@ -114,13 +116,10 @@ SCRIPT
 
 chmod +x /usr/local/bin/export-wazuh-logs.sh
 
-# Setup cron job - CORRECTION: Ajouter explicitement au crontab de root
-echo "[7/7] Configuration cron export..."
-# Supprimer les anciennes entrées
+# Setup cron job
+echo "[7/10] Configuration cron export..."
 crontab -l 2>/dev/null | grep -v export-wazuh-logs > /tmp/crontab.tmp || true
-# Ajouter la nouvelle entrée
 echo "*/2 * * * * /usr/local/bin/export-wazuh-logs.sh" >> /tmp/crontab.tmp
-# Installer le nouveau crontab
 crontab /tmp/crontab.tmp
 rm -f /tmp/crontab.tmp
 echo "✅ Cron configuré : */2 * * * * /usr/local/bin/export-wazuh-logs.sh"
@@ -128,8 +127,36 @@ echo "✅ Cron configuré : */2 * * * * /usr/local/bin/export-wazuh-logs.sh"
 # Initial log export
 /usr/local/bin/export-wazuh-logs.sh
 
+# Copy Wazuh rules
+echo "[8/10] Configuration règles Wazuh..."
+if [ -f "$PROJECT_ROOT/wazuh/local_rules.xml" ]; then
+    docker cp "$PROJECT_ROOT/wazuh/local_rules.xml" single-node-wazuh.manager-1:/var/ossec/etc/rules/
+    docker exec single-node-wazuh.manager-1 chown root:wazuh /var/ossec/etc/rules/local_rules.xml
+    docker exec single-node-wazuh.manager-1 chmod 640 /var/ossec/etc/rules/local_rules.xml
+    echo "✅ Règles Wazuh copiées"
+else
+    echo "⚠️  Fichier local_rules.xml introuvable"
+fi
+
+# Configure rsyslog for RADIUS logs
+echo "[9/10] Configuration rsyslog pour logs RADIUS..."
+cat > /etc/rsyslog.d/30-radius.conf <<'RSYSLOG'
+# Capture logs FreeRADIUS
+:programname, isequal, "freeradius" /var/log/freeradius/radius.log
+:programname, isequal, "freeradius" @@127.0.0.1:1514
+:programname, isequal, "freeradius" stop
+RSYSLOG
+
+# Redémarrer rsyslog
+if systemctl is-active --quiet rsyslog; then
+    systemctl restart rsyslog
+    echo "✅ rsyslog configuré et redémarré"
+else
+    echo "ℹ️ rsyslog non actif, configuration sauvegardée"
+fi
+
 # Configure UFW rules
-echo "Configuration UFW..."
+echo "[10/10] Configuration UFW..."
 ufw --force enable > /dev/null 2>&1
 ufw allow 443/tcp comment 'Wazuh Dashboard' > /dev/null 2>&1
 ufw allow 1514/tcp comment 'Wazuh Agent Registration' > /dev/null 2>&1
@@ -140,6 +167,10 @@ ufw allow 1813/udp comment 'RADIUS Accounting' > /dev/null 2>&1
 ufw allow 80/tcp comment 'HTTP PHP Admin' > /dev/null 2>&1
 ufw allow 22/tcp comment 'SSH' > /dev/null 2>&1
 echo "✅ UFW configuré"
+
+# Restart Wazuh to apply rules
+docker exec single-node-wazuh.manager-1 /var/ossec/bin/wazuh-control restart > /dev/null 2>&1 || true
+echo "✅ Wazuh redémarré"
 
 # Save info
 cat > /root/wazuh-info.txt <<EOF
@@ -176,6 +207,11 @@ docker exec single-node-wazuh.manager-1 cat /var/ossec/logs/alerts/alerts.json |
 
 🔥 FIREWALL UFW
 sudo ufw status numbered
+
+📝 LOGS RADIUS
+Fichier: /var/log/freeradius/radius.log
+Test:    radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123
+Voir:    tail -f /var/log/freeradius/radius.log
 EOF
 
 chmod 600 /root/wazuh-info.txt
@@ -192,10 +228,12 @@ echo "Logs Web:  http://$SERVER_IP/php-admin/wazuh_logs.php"
 echo ""
 echo "✅ UFW activé et configuré"
 echo "✅ Cron export logs actif (toutes les 2 min)"
+echo "✅ rsyslog configuré pour logs RADIUS"
+echo "✅ Règles Wazuh installées"
 echo ""
 echo "Vérifier cron: crontab -l"
 echo "Vérifier UFW:  sudo ufw status"
 echo "Vérifier logs: cat /var/log/wazuh-export/alerts.json"
 echo ""
-echo "📖 Infos complètes: cat /root/wazuh-info.txt"
+echo "📜 Infos complètes: cat /root/wazuh-info.txt"
 echo ""
