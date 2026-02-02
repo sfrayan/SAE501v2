@@ -16,14 +16,38 @@ echo ""
 # Install Docker if needed
 if ! command -v docker &> /dev/null; then
   echo "[1/5] Installation Docker..."
+  
+  # Detect OS
+  . /etc/os-release
+  OS_ID=$ID
+  OS_VERSION_CODENAME=$VERSION_CODENAME
+  
+  echo "OS détecté: $OS_ID $OS_VERSION_CODENAME"
+  
   apt-get update -qq
-  apt-get install -y ca-certificates curl > /dev/null 2>&1
+  apt-get install -y ca-certificates curl gnupg lsb-release > /dev/null 2>&1
   install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-  chmod a+r /etc/apt/keyrings/docker.asc
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  
+  # Remove old Docker GPG key if exists
+  rm -f /etc/apt/keyrings/docker.asc /etc/apt/keyrings/docker.gpg
+  
+  if [ "$OS_ID" = "debian" ]; then
+    # Debian
+    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $OS_VERSION_CODENAME stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  elif [ "$OS_ID" = "ubuntu" ]; then
+    # Ubuntu
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $OS_VERSION_CODENAME stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  else
+    echo "❌ OS non supporté: $OS_ID"
+    exit 1
+  fi
+  
   apt-get update -qq
-  apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin > /dev/null 2>&1
+  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null 2>&1
   systemctl enable --now docker > /dev/null 2>&1
   echo "✅ Docker installé"
 else
@@ -79,9 +103,9 @@ fi
 
 # Save info
 cat > /root/wazuh-info.txt <<EOF
-╔════════════════════════════════════╗
+╔══════════════════════════════════════╗
 ║   WAZUH DOCKER - SAE 5.01          ║
-╚════════════════════════════════════╝
+╚══════════════════════════════════════╝
 
 📊 ACCÈS
 URL:      https://$SERVER_IP:443
@@ -109,9 +133,9 @@ EOF
 chmod 600 /root/wazuh-info.txt
 
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "──────────────────────────────────────"
 echo "✅ Wazuh Manager installé"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "──────────────────────────────────────"
 echo ""
 echo "Dashboard: https://$SERVER_IP:443"
 echo "User:      $ADMIN_USER"
