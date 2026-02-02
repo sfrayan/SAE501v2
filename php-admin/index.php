@@ -101,6 +101,10 @@ $page_title = 'Accueil';
             box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
         }
         
+        .menu-item.wazuh {
+            background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+        }
+        
         .menu-item h3 {
             font-size: 18px;
             margin-bottom: 10px;
@@ -248,6 +252,13 @@ $page_title = 'Accueil';
                 <div class="icon">🗑️</div>
                 <h3>Supprimer Utilisateur</h3>
                 <p>Supprimer un utilisateur existant</p>
+            </a>
+            
+            <!-- Logs Wazuh -->
+            <a href="wazuh_logs.php" class="menu-item wazuh">
+                <div class="icon">📊</div>
+                <h3>Logs Wazuh</h3>
+                <p>Consulter les alertes de sécurité</p>
             </a>
         </div>
         
