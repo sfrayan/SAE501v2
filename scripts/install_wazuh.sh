@@ -114,9 +114,15 @@ SCRIPT
 
 chmod +x /usr/local/bin/export-wazuh-logs.sh
 
-# Setup cron job
+# Setup cron job - CORRECTION: Ajouter explicitement au crontab de root
 echo "[7/7] Configuration cron export..."
-(crontab -l 2>/dev/null | grep -v export-wazuh-logs; echo "*/2 * * * * /usr/local/bin/export-wazuh-logs.sh") | crontab -
+# Supprimer les anciennes entrées
+crontab -l 2>/dev/null | grep -v export-wazuh-logs > /tmp/crontab.tmp || true
+# Ajouter la nouvelle entrée
+echo "*/2 * * * * /usr/local/bin/export-wazuh-logs.sh" >> /tmp/crontab.tmp
+# Installer le nouveau crontab
+crontab /tmp/crontab.tmp
+rm -f /tmp/crontab.tmp
 echo "✅ Cron configuré : */2 * * * * /usr/local/bin/export-wazuh-logs.sh"
 
 # Initial log export
