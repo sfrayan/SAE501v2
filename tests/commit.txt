@@ -1,3 +1,0 @@
-feat(tests): Ajouter tests authentification PEAP-MSCHAPv2 (802.1X)
-feat(tests): Ajouter tests isolement VLAN et configuration 802.1X
-feat(tests): Ajouter tests collecte/traitement logs Wazuh depuis TL-MR100
