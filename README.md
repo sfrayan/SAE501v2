@@ -8,18 +8,96 @@
 
 ## 📋 Table des matières
 
-1. [Objectifs du projet](#objectifs)
-2. [Architecture globale](#architecture)
-3. [Configuration réseau IMPORTANTE](#config-reseau)
-4. [Installation complète](#installation)
-5. [Configuration du routeur](#routeur)
-6. [Tests et validation](#tests)
-7. [Hardening du serveur](#hardening)
-8. [Troubleshooting](#troubleshooting)
+1. [⚠️ Prérequis Système](#prerequis)
+2. [Objectifs du projet](#objectifs)
+3. [Architecture globale](#architecture)
+4. [Configuration réseau IMPORTANTE](#config-reseau)
+5. [🎯 Ordre d'exécution des scripts](#ordre-execution)
+6. [Installation complète](#installation)
+7. [Configuration du routeur](#routeur)
+8. [Tests et validation](#tests)
+9. [Hardening du serveur](#hardening)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
-## 🎯 Objectifs
+## ⚠️ Prérequis Système (À VÉRIFIER AVANT) {#prerequis}
+
+### 💻 Configuration Matérielle Minimale
+
+- **CPU** : 2 cores minimum
+- **RAM** : **4GB minimum** (8GB recommandé pour Wazuh)
+- **Disque** : **20GB libres minimum**
+- **OS** : **Debian 11 (Bullseye) uniquement**
+
+### ✅ Script de Vérification Automatique
+
+**🚨 EXÉCUTEZ CETTE COMMANDE EN PREMIER :**
+
+```bash
+cd ~/SAE501v2
+bash scripts/check_prerequisites.sh
+```
+
+Ce script vérifie automatiquement :
+- ✓ Version OS (Debian 11)
+- ✓ Ressources (RAM ≥4GB, Disque ≥20GB)
+- ✓ Configuration réseau (enp0s8, enp0s3)
+- ✓ Connectivité Internet
+- ✓ Dépendances (git, curl, wget)
+- ✓ Services déjà installés
+
+**Si le score est vert ✅, vous pouvez continuer. Sinon, suivez les instructions affichées.**
+
+### 🔍 Vérifications Manuelles (si nécessaire)
+
+```bash
+# 1. Vérifier la version Debian
+lsb_release -d
+# Doit afficher: Debian GNU/Linux 11 (bullseye)
+
+# 2. Vérifier RAM disponible
+free -h
+# Minimum 4GB (3.8G utilisable)
+
+# 3. Vérifier espace disque
+df -h /
+# Minimum 20GB libres
+
+# 4. Vérifier connexion Internet
+ping -c 4 8.8.8.8
+# Doit réussir
+
+# 5. Vérifier droits root
+sudo -v
+# Ne doit pas demander de mot de passe
+```
+
+### 📦 Logiciels Requis
+
+```bash
+# Installer les dépendances de base
+sudo apt update
+sudo apt install -y git curl wget net-tools
+```
+
+### ☑️ Checklist Pré-Installation
+
+**NE PAS CONTINUER sans valider tous ces points :**
+
+- [ ] Debian 11 confirmé
+- [ ] RAM ≥4GB vérifiée
+- [ ] Disque ≥20GB vérifié
+- [ ] enp0s3 (NAT) configurée avec Internet
+- [ ] enp0s8 (Bridge) configurée avec IP 192.168.10.100
+- [ ] apt-get fonctionne
+- [ ] git, curl, wget installés
+- [ ] Accès root (sudo) vérifié
+- [ ] Script `check_prerequisites.sh` exécuté avec succès ✅
+
+---
+
+## 🎯 Objectifs {#objectifs}
 
 ### Fonctionnels
 
@@ -41,7 +119,7 @@
 
 ---
 
-## 🏭 Architecture
+## 🏭 Architecture {#architecture}
 
 ### Schéma réseau
 
@@ -154,7 +232,80 @@ apt update    # Doit fonctionner via enp0s3
 
 ---
 
-## 🚀 Installation complète {#installation}
+## 🎯 Ordre d'Exécution des Scripts {#ordre-execution}
+
+**⚠️ IMPORTANT : Suivre cet ordre strictement**
+
+### Phase 0 : Préparation (15 min)
+
+```bash
+# 1. Vérifier prérequis système
+lsb_release -d && free -h && df -h /
+
+# 2. Cloner le projet
+cd ~
+git clone https://github.com/sfrayan/SAE501v2.git
+cd SAE501v2
+chmod +x scripts/*.sh
+
+# 3. VÉRIFICATION OBLIGATOIRE
+bash scripts/check_prerequisites.sh
+# ⚠️ Si échec : corriger les problèmes avant de continuer
+# ✅ Si succès : continuer Phase 1
+
+# 4. Configurer réseau (si pas déjà fait)
+sudo nano /etc/network/interfaces
+# Ajouter configuration enp0s3 et enp0s8 (voir section Configuration Réseau)
+sudo systemctl restart networking
+
+# 5. Vérifier connectivité
+ping -I enp0s3 -c 2 8.8.8.8    # Internet via NAT
+sudo apt update                  # Doit réussir
+```
+
+### Phase 1 : Installation Services (30 min)
+
+**Option A : Installation complète automatique** (👍 Recommandé)
+
+```bash
+cd ~/SAE501v2
+sudo bash scripts/install_all.sh
+```
+
+**Option B : Installation manuelle étape par étape** (Pour apprentissage)
+
+```bash
+cd ~/SAE501v2
+
+# Étape 1 : FreeRADIUS (10 min)
+sudo bash scripts/install_radius.sh
+
+# Étape 2 : PHP-Admin (5 min)
+sudo bash scripts/install_php_admin.sh
+
+# Étape 3 : Wazuh (15 min)
+sudo bash scripts/install_wazuh.sh
+```
+
+### Phase 2 : Vérification (5 min)
+
+```bash
+cd ~/SAE501v2
+sudo bash scripts/diagnostics.sh
+# Score attendu: > 85% ✅
+```
+
+### Phase 3 : Configuration Routeur (45 min)
+
+Voir section [Configuration du Routeur](#routeur) ci-dessous
+
+### Phase 4 : Tests et Validation (30 min)
+
+Voir section [Tests et Validation](#tests) ci-dessous
+
+---
+
+## 🚀 Installation Complète {#installation}
 
 ### Phase 1 : Installation VM (30 min)
 
@@ -177,6 +328,14 @@ cd ~
 git clone https://github.com/sfrayan/SAE501v2.git
 cd SAE501v2
 chmod +x scripts/*.sh
+```
+
+#### Étape 1.2bis : Vérifier les prérequis (NOUVEAU)
+
+```bash
+# EXÉCUTER EN PREMIER !
+bash scripts/check_prerequisites.sh
+# Doit afficher ✅ score vert
 ```
 
 #### Étape 1.3 : Installer FreeRADIUS
