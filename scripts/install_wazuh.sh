@@ -97,6 +97,9 @@ sleep 40
 # 9. Installation Wazuh Dashboard
 apt-get install -y wazuh-dashboard >/dev/null 2>&1
 
+# 9.1. Désactivation du plugin de sécurité Dashboard (CRITIQUE pour enlever le login)
+/usr/share/wazuh-dashboard/bin/opensearch-dashboards-plugin remove securityDashboards >/dev/null 2>&1
+
 mkdir -p /etc/wazuh-dashboard/certs
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout /etc/wazuh-dashboard/certs/dashboard.key \
@@ -106,6 +109,7 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
 chmod 600 /etc/wazuh-dashboard/certs/*
 
+# 9.2. Configuration Dashboard SANS authentification
 cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<'EOF'
 server.host: "0.0.0.0"
 server.port: 443
@@ -114,7 +118,6 @@ server.ssl.certificate: /etc/wazuh-dashboard/certs/dashboard.crt
 server.ssl.key: /etc/wazuh-dashboard/certs/dashboard.key
 opensearch.hosts: ["http://127.0.0.1:9200"]
 opensearch.ssl.verificationMode: none
-opensearch.requestHeadersWhitelist: []
 EOF
 
 chown wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/opensearch_dashboards.yml
