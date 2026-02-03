@@ -1,2 +1,14 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Fichiers temporaires
+*~
+*.swp
+.DS_Store
+
+# Environnements
+venv/
+.venv/
+
+# Vendor PHP (si utilisé)
+php-admin/vendor/
+
+# Logs éventuels
+*.log
