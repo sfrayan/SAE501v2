@@ -20,7 +20,7 @@ Ce dossier docummente **les preuves opérationnelles** du projet SAE 5.01, organ
 
 ### 1.1 Test RADIUS Local (radtest)
 
-**Fichier** : `wifi/radtest_success.png`
+**Fichier** : `images/wifi-radtest-success.png`
 
 **Objectif validé** ✅ : Le serveur FreeRADIUS accepte les authentifications PEAP-MSCHAPv2
 
@@ -41,11 +41,13 @@ Received Access-Accept Id 123 from 127.0.0.1:1812
 - ✅ Utilisateur alice@gym.fr existe en base
 - ✅ Mot de passe valide (Alice@123!)
 
+![Radtest Success](images/wifi-radtest-success.png)
+
 ---
 
 ### 1.2 Connexion Client Réel (Windows/Android/iOS)
 
-**Fichier** : `wifi/client_connect.png`
+**Fichier** : `images/wifi-client-connect.png`
 
 **Objectif validé** ✅ : Un client réel se connecte au SSID "Fitness-Pro" via WPA2-Enterprise
 
@@ -71,13 +73,15 @@ Password: Alice@123!
 - ✅ Adresse IP attribuée
 - ✅ Type de sécurité : WPA2-Enterprise
 
+![Client Connect](images/wifi-client-connect.png)
+
 ---
 
 ## 🛡️ Supervision & Sécurité Wazuh {#supervision}
 
 ### 2.1 Dashboard Wazuh - Vue d'ensemble
 
-**Fichier** : `wazuh/dashboard_overview.png`
+**Fichier** : `images/wazuh-dashboard-overview.png`
 
 **Objectif validé** ✅ : Le système de supervision centralisé est opérationnel
 
@@ -90,15 +94,17 @@ Password: Alice@123!
 
 **Éléments visibles** :
 - 📊 Graphiques de trafic (événements par heure)
-- 🔢 Statistiques (nombre d'agents, d'alertes, d'événements)
+- 📈 Statistiques (nombre d'agents, d'alertes, d'événements)
 - 🎯 Gestion centralisée des logs
 - 📈 Évolution temporelle
+
+![Dashboard Wazuh](images/wazuh-dashboard-overview.png)
 
 ---
 
 ### 2.2 Détection Bruteforce SSH (Règle ID 5050)
 
-**Fichier** : `wazuh/ssh_bruteforce.png`
+**Fichier** : `images/wazuh-ssh-bruteforce.png`
 
 **Objectif validé** ✅ : Le système détecte automatiquement les attaques par force brute SSH
 
@@ -118,15 +124,17 @@ for i in {1..5}; do ssh baduser@192.168.10.100; done
 **Capture d'écran montre** :
 - 🔴 Severity: HIGH ou CRITICAL
 - 🔔 Alerte: "SSH Bruteforce Attack Detected"
-- 📍 Source IP attaquante
-- ⏰ Nombre de tentatives échouées
-- 🕐 Timestamp précis de détection
+- 📝 Source IP attaquante
+- 🔢 Nombre de tentatives échouées
+- ⏰ Timestamp précis de détection
+
+![SSH Bruteforce](images/wazuh-ssh-bruteforce.png)
 
 ---
 
 ### 2.3 Réception des Logs Routeur (Syslog)
 
-**Fichier** : `wazuh/router_logs.png`
+**Fichier** : `images/wazuh-router-logs.png`
 
 **Objectif validé** ✅ : Les logs du routeur TL-MR100 sont centralisés dans Wazuh
 
@@ -153,13 +161,15 @@ for i in {1..5}; do ssh baduser@192.168.10.100; done
 - 📊 Statistiques de bande passante
 - 🔒 Événements de sécurité
 
+![Router Logs](images/wazuh-router-logs.png)
+
 ---
 
 ## 🕸️ Réseau & Isolement {#réseau}
 
 ### 3.1 Vérification AP Isolation (Test Ping Inter-Client)
 
-**Fichier** : `network/ping_vlan_fail.png`
+**Fichier** : `images/network-ping-vlan-fail.png`
 
 **Objectif validé** ✅ : L'AP Isolation empêche les clients Fitness-Guest de communiquer entre eux
 
@@ -188,11 +198,13 @@ PING 192.168.10.102 (192.168.10.102) 56(84) bytes of data.
 5 packets transmitted, 0 received, 100% packet loss, time 4000ms
 ```
 
+![Ping Fail](images/network-ping-vlan-fail.png)
+
 ---
 
 ### 3.2 Capture Wireshark - Handshake EAP-PEAP
 
-**Fichier** : `network/eap_handshake.pcapng`
+**Fichier** : `images/network-eap-handshake.pcapng`
 
 **Objectif validé** ✅ : Les identifiants ne circulent jamais en clair (tunnel TLS)
 
@@ -201,10 +213,10 @@ PING 192.168.10.102 (192.168.10.102) 56(84) bytes of data.
 **Comment ouvrir** :
 ```bash
 # Sous Linux/Mac
-tcpdump -r network/eap_handshake.pcapng | head -20
+tcpdump -r images/network-eap-handshake.pcapng | head -20
 
 # Ou dans Wireshark
-# Fichier → Ouvrir → eap_handshake.pcapng
+# Fichier → Ouvrir → network-eap-handshake.pcapng
 ```
 
 **Validations** :
@@ -229,11 +241,11 @@ tcpdump -r network/eap_handshake.pcapng | head -20
 
 ---
 
-## 🖥️ Administration & Gestion {#admin}
+## 💾 Administration & Gestion {#admin}
 
 ### 4.1 Interface PHP-Admin - Liste des Utilisateurs
 
-**Fichier** : `admin/php_user_list.png`
+**Fichier** : `images/admin-php-user-list.png`
 
 **Objectif validé** ✅ : Interface web de gestion des utilisateurs RADIUS opérationnelle
 
@@ -260,11 +272,13 @@ URL: http://192.168.10.100/php-admin/list_users.php
 - bob.couch@gym.fr (staff)
 - guests (groupe invités)
 
+![PHP Admin](images/admin-php-user-list.png)
+
 ---
 
 ### 4.2 Configuration du Routeur - SSID & RADIUS
 
-**Fichier** : `admin/router_config.png`
+**Fichier** : `images/admin-router-config.png`
 
 **Objectif validé** ✅ : Configuration routeur TP-Link TL-MR100 complète
 
@@ -276,7 +290,7 @@ SSID Name: Fitness-Pro
 Security Mode: WPA2-Enterprise
 RADIUS Server: 192.168.10.100
 RADIUS Port: 1812
-Shared Secret: testing123 (●●●●●●●●●)
+Shared Secret: testing123 (•••••••••)
 Broadcast SSID: Enabled
 ```
 
@@ -284,7 +298,7 @@ Broadcast SSID: Enabled
 ```
 SSID Name: Fitness-Guest
 Security Mode: WPA2-PSK
-PSK Password: GuestPass@2026 (●●●●●●●●●)
+PSK Password: GuestPass@2026 (•••••••••)
 AP Isolation: ENABLED ✅
 Broadcast SSID: Enabled
 ```
@@ -303,6 +317,8 @@ Enable: ON
 - ✅ AP Isolation activée pour invités
 - ✅ Syslog vers serveur de supervision
 - ✅ Configuration persistante (sauvegardée)
+
+![Router Config](images/admin-router-config.png)
 
 ---
 
@@ -331,25 +347,25 @@ Enable: ON
 
 | Type | Fichiers | Validation |
 |------|----------|-----------|
-| **Screenshots** | PNG (wifi, wazuh, admin) | Configuration, interface, résultats |
-| **Captures réseau** | PCAPNG (network) | Analyse du trafic, sécurité |
-| **Logs** | JSON (wazuh-export) | Supervision, alertes |
+| **Screenshots** | PNG (images/) | Configuration, interface, résultats |
+| **Captures réseau** | PCAPNG (images/) | Analyse du trafic, sécurité |
+| **Logs** | JSON | Supervision, alertes |
 
 ---
 
-## 📊 Récapitulatif des Validations
+## 📋 Récapitulatif des Validations
 
 | Critère | Fichier | Status |
 |---------|---------|--------|
-| Authentification RADIUS locale | wifi/radtest_success.png | ✅ |
-| Authentification client réel | wifi/client_connect.png | ✅ |
-| Supervision centralisée | wazuh/dashboard_overview.png | ✅ |
-| Détection intrusion | wazuh/ssh_bruteforce.png | ✅ |
-| Logs routeur reçus | wazuh/router_logs.png | ✅ |
-| AP Isolation fonctionnelle | network/ping_vlan_fail.png | ✅ |
-| Handshake EAP sécurisé | network/eap_handshake.pcapng | ✅ |
-| Interface administration | admin/php_user_list.png | ✅ |
-| Configuration routeur | admin/router_config.png | ✅ |
+| Authentification RADIUS locale | images/wifi-radtest-success.png | ✅ |
+| Authentification client réel | images/wifi-client-connect.png | ✅ |
+| Supervision centralisée | images/wazuh-dashboard-overview.png | ✅ |
+| Détection intrusion | images/wazuh-ssh-bruteforce.png | ✅ |
+| Logs routeur reçus | images/wazuh-router-logs.png | ✅ |
+| AP Isolation fonctionnelle | images/network-ping-vlan-fail.png | ✅ |
+| Handshake EAP sécurisé | images/network-eap-handshake.pcapng | ✅ |
+| Interface administration | images/admin-php-user-list.png | ✅ |
+| Configuration routeur | images/admin-router-config.png | ✅ |
 
 ---
 
@@ -357,7 +373,7 @@ Enable: ON
 
 ### Si une capture manque ou échoue
 
-**Problème** : `wifi/radtest_success.png` manquante ou montre "Access-Reject"
+**Problème** : `images/wifi-radtest-success.png` manquante ou montre "Access-Reject"
 
 **Diagnostique** :
 ```bash
@@ -368,7 +384,7 @@ radtest alice@gym.fr Alice@123! 127.0.0.1 1812 testing123
 
 ---
 
-**Problème** : `wazuh/dashboard_overview.png` affiche 0 agents
+**Problème** : `images/wazuh-dashboard-overview.png` affiche 0 agents
 
 **Diagnostique** :
 ```bash
@@ -379,7 +395,7 @@ docker compose logs wazuh
 
 ---
 
-**Problème** : `network/ping_vlan_fail.png` montre réponse (pas d'isolation)
+**Problème** : `images/network-ping-vlan-fail.png` montre réponse (pas d'isolation)
 
 **Diagnostique** :
 ```bash
@@ -415,4 +431,5 @@ docker compose logs wazuh
 ---
 
 **Dernière mise à jour** : Février 2026  
-**Statut** : ✅ Toutes les validations passées
+**Statut** : ✅ Toutes les validations passées  
+**Dossier images** : `captures/images/`
